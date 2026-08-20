@@ -67,6 +67,9 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
       _client = widget.client ?? QueryClient.instance;
       _subscribe();
       if (widget.enabled) _kickOffFetch();
+    } else if (widget.enabled && !oldWidget.enabled) {
+      // enabled flipped false → true: kick off the fetch initState skipped.
+      _kickOffFetch();
     }
   }
 

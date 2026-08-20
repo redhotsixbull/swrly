@@ -33,7 +33,7 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
   MutationState<T> _state = const MutationState<Never>.idle() as MutationState<T>;
 
   Future<T?> _mutate(V variables) async {
-    setState(() => _state = const MutationState<Never>.idle() as MutationState<T>);
+    if (!mounted) return null;
     setState(() => _state = MutationState<T>(status: MutationStatus.loading));
     try {
       final result = await widget.mutationFn(variables);

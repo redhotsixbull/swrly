@@ -24,7 +24,7 @@ QueryClient({
 - `Future<T> fetchQuery<T>({key, fn, staleTime})` — imperative fetch. Uses cache if fresh, dedups in-flight requests, emits state updates through the stream.
 - `Stream<QueryState<T>> observe<T>(key)` — broadcast stream of state changes.
 - `QueryState<T> stateOf<T>(key)` — synchronous read of current state.
-- `void invalidateQueries(prefix, {bool refetch = true})` — mark all keys starting with `prefix` stale.
+- `void invalidateQueries(prefix, {bool refetch = true})` — mark all keys starting with `prefix` stale. With `refetch: true` (default), entries that currently have subscribers are refetched immediately using their last `queryFn`; others refetch on next observe.
 - `void setQueryData<T>(key, data)` — write a value directly (skips `queryFn`). Useful for optimistic updates.
 - `T? getQueryData<T>(key)` — read the cached value.
 - `void removeQueries(prefix)` — remove entries whose keys start with `prefix`.

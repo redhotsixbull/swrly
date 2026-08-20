@@ -7,14 +7,39 @@ import 'query_state.dart';
 
 typedef QueryFn<T> = Future<T> Function();
 
+/// A single cache slot for one [QueryKey]. Holds the current [state], the
+/// broadcast [stream] that widgets subscribe to, the in-flight request (for
+/// deduplication), a monotonic freshness stamp and a garbage-collection timer.
 class QueryEntry<T> {
   QueryEntry(this.key);
 
   final QueryKey key;
   QueryState<T> state = const QueryState<Never>.idle() as QueryState<T>;
+
+  /// The current shared request, if any. Concurrent [QueryClient.fetchQuery]
+  /// calls await the same future instead of firing the [QueryFn] twice.
   Future<T>? _inflight;
+
+  /// Cancels the entry after the last subscriber leaves (see cacheTime).
   Timer? _gcTimer;
+
+  /// Number of live [QueryBuilder]s (or manual subscribers) for this key.
   int subscribers = 0;
+
+  /// Monotonic elapsed time (from the owning client's clock) at which [state]
+  /// last became a fresh success. Compared against `staleTime`. `null` means
+  /// "no fresh data" — either never fetched or explicitly invalidated.
+  Duration? freshAt;
+
+  /// Monotonically increasing token identifying the newest fetch. A resolving
+  /// request only writes its result back if its token still matches, so a slow
+  /// stale response can never clobber newer data (see [QueryClient._runFetch]).
+  int generation = 0;
+
+  /// Re-runs the last [QueryFn] with its original type argument captured.
+  /// Populated by [QueryClient.fetchQuery]; used by `invalidateQueries` to
+  /// actively refetch active subscribers.
+  void Function()? refetcher;
 
   final _controller = StreamController<QueryState<T>>.broadcast();
 
@@ -27,10 +52,14 @@ class QueryEntry<T> {
 
   void dispose() {
     _gcTimer?.cancel();
+    _gcTimer = null;
     _controller.close();
   }
 }
 
+/// In-memory server-state cache. Create one per app (or use [instance]) and
+/// drive it through [QueryBuilder] / [MutationBuilder], or imperatively via
+/// [fetchQuery] / [setQueryData] / [invalidateQueries].
 class QueryClient {
   QueryClient({
     this.defaultStaleTime = Duration.zero,
@@ -42,6 +71,11 @@ class QueryClient {
   final Duration defaultStaleTime;
   final Duration defaultCacheTime;
 
+  /// Monotonic clock used for freshness checks. Immune to wall-clock jumps
+  /// (NTP sync, timezone/DST changes) that would corrupt `DateTime.now()`
+  /// comparisons.
+  final Stopwatch _clock = Stopwatch()..start();
+
   final Map<QueryKeyHash, QueryEntry<Object?>> _entries = {};
 
   @visibleForTesting
@@ -50,10 +84,29 @@ class QueryClient {
   QueryEntry<T> _entryFor<T>(QueryKey key) {
     final hash = QueryKeyHash.of(key);
     final existing = _entries[hash];
-    if (existing != null) return existing as QueryEntry<T>;
+    if (existing != null) {
+      // Pause GC while the entry is being touched so it can never be disposed
+      // out from under an imperative caller.
+      existing._gcTimer?.cancel();
+      existing._gcTimer = null;
+      return existing as QueryEntry<T>;
+    }
     final created = QueryEntry<T>(key);
     _entries[hash] = created as QueryEntry<Object?>;
     return created;
+  }
+
+  /// Schedules garbage collection for an entry that currently has no
+  /// subscribers, so imperatively-created entries don't leak forever.
+  void _armGcIfIdle(QueryEntry<Object?> entry) {
+    if (entry.subscribers > 0) return;
+    entry._gcTimer?.cancel();
+    entry._gcTimer = Timer(defaultCacheTime, () {
+      if (entry.subscribers > 0) return;
+      final hash = QueryKeyHash.of(entry.key);
+      if (identical(_entries[hash], entry)) _entries.remove(hash);
+      entry.dispose();
+    });
   }
 
   Stream<QueryState<T>> observe<T>(QueryKey key) {
@@ -66,6 +119,8 @@ class QueryClient {
     return entry.state;
   }
 
+  /// Returns cached data if it is still fresh (within `staleTime`), otherwise
+  /// fires [fn]. Concurrent calls for the same key share one in-flight request.
   Future<T> fetchQuery<T>({
     required QueryKey key,
     required QueryFn<T> fn,
@@ -74,10 +129,19 @@ class QueryClient {
     final entry = _entryFor<T>(key);
     final effectiveStale = staleTime ?? defaultStaleTime;
 
-    final now = DateTime.now();
-    final fresh = entry.state.updatedAt != null &&
-        now.difference(entry.state.updatedAt!) < effectiveStale;
-    if (fresh && entry.state.isSuccess && entry.state.data != null) {
+    // Capture the typed fn/entry so invalidateQueries can refetch with the
+    // correct type argument later.
+    entry.refetcher = () {
+      entry._inflight = _runFetch<T>(entry, fn);
+    };
+
+    final fresh = entry.freshAt != null &&
+        entry.state.isSuccess &&
+        (_clock.elapsed - entry.freshAt!) < effectiveStale;
+    // Note: does NOT require data != null — a successful query whose value is
+    // legitimately null is still fresh.
+    if (fresh) {
+      _armGcIfIdle(entry);
       return Future.value(entry.state.data as T);
     }
 
@@ -86,54 +150,75 @@ class QueryClient {
 
     final future = _runFetch<T>(entry, fn);
     entry._inflight = future;
+    _armGcIfIdle(entry);
     return future;
   }
 
   Future<T> _runFetch<T>(QueryEntry<T> entry, QueryFn<T> fn) async {
+    final token = ++entry.generation;
     entry._emit(entry.state.copyWith(
       status: entry.state.isSuccess ? entry.state.status : QueryStatus.loading,
       isFetching: true,
     ));
     try {
       final result = await fn();
-      entry._emit(QueryState<T>(
-        status: QueryStatus.success,
-        data: result,
-        updatedAt: DateTime.now(),
-        isFetching: false,
-      ));
+      // Only write back if we are still the newest fetch. A superseded request
+      // (invalidate / setQueryData / newer fetch) silently drops its result.
+      if (token == entry.generation) {
+        entry.freshAt = _clock.elapsed;
+        entry._emit(QueryState<T>(
+          status: QueryStatus.success,
+          data: result,
+          updatedAt: DateTime.now(),
+          isFetching: false,
+        ));
+      }
       return result;
     } catch (e, st) {
-      entry._emit(entry.state.copyWith(
-        status: QueryStatus.error,
-        error: e,
-        stackTrace: st,
-        isFetching: false,
-      ));
+      if (token == entry.generation) {
+        entry._emit(entry.state.copyWith(
+          status: QueryStatus.error,
+          error: e,
+          stackTrace: st,
+          isFetching: false,
+        ));
+      }
       rethrow;
     } finally {
-      entry._inflight = null;
+      if (token == entry.generation) entry._inflight = null;
     }
   }
 
+  /// Marks every entry whose key starts with [prefix] as stale. When [refetch]
+  /// is true (the default), entries that currently have subscribers are
+  /// actively refetched using their last [QueryFn]; entries without subscribers
+  /// simply refetch the next time they are observed.
   void invalidateQueries(QueryKey prefix, {bool refetch = true}) {
     for (final entry in _entries.values) {
       if (!queryKeyStartsWith(entry.key, prefix)) continue;
+      entry.freshAt = null;
       entry._emit(entry.state.copyWith(
         updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
       ));
-      // Individual QueryBuilders will refetch on rebuild when refetch=true.
+      if (refetch && entry.subscribers > 0) {
+        entry.refetcher?.call();
+      }
     }
   }
 
   void setQueryData<T>(QueryKey key, T data) {
     final entry = _entryFor<T>(key);
+    // Supersede any in-flight fetch so its late result can't overwrite this.
+    entry.generation++;
+    entry._inflight = null;
+    entry.freshAt = _clock.elapsed;
     entry._emit(QueryState<T>(
       status: QueryStatus.success,
       data: data,
       updatedAt: DateTime.now(),
       isFetching: false,
     ));
+    _armGcIfIdle(entry);
   }
 
   T? getQueryData<T>(QueryKey key) {
@@ -168,11 +253,7 @@ class QueryClient {
     if (entry == null) return;
     entry.subscribers = (entry.subscribers - 1).clamp(0, 1 << 31);
     if (entry.subscribers == 0) {
-      entry._gcTimer?.cancel();
-      entry._gcTimer = Timer(defaultCacheTime, () {
-        _entries.remove(QueryKeyHash.of(key));
-        entry.dispose();
-      });
+      _armGcIfIdle(entry);
     }
   }
 }
