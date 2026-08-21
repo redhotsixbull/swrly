@@ -4,6 +4,13 @@ import 'package:flutter/widgets.dart';
 import 'package:swrly/swrly.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+class _Custom {
+  _Custom(this.n);
+  final int n;
+  @override
+  String toString() => 'Custom($n)';
+}
+
 void main() {
   group('QueryKeyHash', () {
     test('equal keys hash equal, order-independent maps', () {
@@ -952,6 +959,92 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
       client.clear();
+    });
+  });
+
+  group('QueryBuilder refetch / lifecycle', () {
+    testWidgets('the builder refetch() callback forces a fetch past staleTime',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      late Future<void> Function() doRefetch;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<int>(
+            client: client,
+            queryKey: const ['rf'],
+            staleTime: const Duration(minutes: 5),
+            queryFn: () async => ++calls,
+            builder: (c, s, refetch) {
+              doRefetch = refetch;
+              return Text('n=${s.data}');
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+
+      await doRefetch();
+      await tester.pumpAndSettle();
+      expect(calls, 2, reason: 'refetch() ignores staleTime');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('refetchOnResume refetches on AppLifecycleState.resumed',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<int>(
+            client: client,
+            queryKey: const ['rs'],
+            staleTime: const Duration(minutes: 5),
+            queryFn: () async => ++calls,
+            builder: (c, s, refetch) => Text('n=${s.data}'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(calls, 2, reason: 'app resume forces a refetch');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+  });
+
+  group('misc coverage', () {
+    test('QueryKeyHash: custom object falls back to toString, hash/== stable',
+        () {
+      final a = QueryKeyHash.of([_Custom(1)]);
+      final b = QueryKeyHash.of([_Custom(1)]);
+      expect(a, b, reason: 'equal toString → same hash key');
+      expect(a.hashCode, b.hashCode);
+      expect(a.toString(), contains('Custom(1)'));
+      expect(QueryKeyHash.of([_Custom(1)]) == QueryKeyHash.of([_Custom(2)]),
+          isFalse);
+    });
+
+    test('idle-state getters', () {
+      const q = QueryState<int>.idle();
+      expect(q.isIdle, isTrue);
+      expect(q.isLoading, isFalse);
+      const m = MutationState<int>.idle();
+      expect(m.isIdle, isTrue);
+      expect(m.isLoading, isFalse);
+    });
+
+    test('QueryClient.instance is a lazily-created shared singleton', () {
+      expect(identical(QueryClient.instance, QueryClient.instance), isTrue);
     });
   });
 }

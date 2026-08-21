@@ -14,8 +14,24 @@ cache by query key, serve instantly while revalidating in the background, and
 invalidate on mutations. Inspired by [TanStack Query](https://tanstack.com/query)
 and [SWR](https://swr.vercel.app/).
 
-> **Status:** `0.1.1` — early but usable. Core cache semantics are covered by
-> tests and it runs on every platform (mobile, desktop, **web**).
+> **Status:** stable `0.1.x`; **`0.2.0` in prerelease** (`0.2.0-dev.N`) — adds
+> retry+backoff, optimistic rollback, and `keepPreviousData`. Core cache
+> semantics are covered by tests (100% line coverage on `lib/src`) and it runs
+> on every platform (mobile, desktop, **web**).
+>
+> Trying the prerelease: `swrly: 0.2.0-dev.3` (pin exactly — prereleases aren't
+> picked by `^` constraints).
+
+### New in 0.2.0 (dev)
+
+- **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
+  (`defaultRetry`/`defaultRetryDelay`), exponential 1s→30s by default.
+- **Optimistic updates with automatic rollback** — `MutationBuilder.onMutate`
+  returns a rollback closure that runs automatically on failure.
+- **`keepPreviousData` / `placeholderData`** — no loading flash on key change
+  (search/pagination); `state.isPlaceholderData` marks the stand-in.
+
+See [`CHANGELOG.md`](CHANGELOG.md) and [`doc/ROADMAP.md`](doc/ROADMAP.md).
 
 ## Why swrly?
 
@@ -223,22 +239,25 @@ See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 
 ## Where this is going
 
-`swrly` is early (`0.1.0`) and will grow with real use. The plan, roughly in
-order — the point is to erase the "hand-rolled" gaps above so the honest
-comparison keeps tilting in `swrly`'s favour:
+`swrly` grows with real use — the point is to erase the "hand-rolled" gaps so the
+honest comparison keeps tilting in `swrly`'s favour.
 
-- **Ergonomics first** — `useQuery` / `useMutation` for `flutter_hooks`, and a
-  non-widget `QueryObserver`. (A predicate form of `invalidateQueries` shipped in
-  0.1.1.)
-- **Robustness** — typed error surfaces and request **cancellation** when the
-  last subscriber leaves. (Configurable **retry + backoff** landed in 0.2.0-dev.)
-- **Bigger features** — **infinite / paginated** queries, first-class
-  **optimistic updates with rollback**, and window/online refetch triggers.
+**Shipped in 0.2.0-dev:** retry + backoff · optimistic rollback (`onMutate`) ·
+`keepPreviousData` / `placeholderData` · predicate `invalidateQueries` (0.1.1).
+
+**Still ahead:**
+
+- **Robustness** — request **cancellation** when the last subscriber leaves
+  (threads an abort token into `queryFn`), typed error surfaces.
+- **Bigger features** — **infinite / paginated** queries, window/online refetch
+  triggers.
+- **Ergonomics** — non-widget `QueryObserver`, optional `flutter_hooks`
+  `useQuery` / `useMutation`. (`useQueries` is intentionally skipped as too
+  React-flavored; a type-safe record combinator is the preferred path.)
 - **Persistence** — a pluggable adapter interface (hive / shared_preferences /
   drift) for offline-first caching.
-- **Ecosystem** — a DevTools panel to inspect the cache, and **Riverpod / Bloc
-  bridges** (`AsyncValue` adapters) so it composes cleanly with what you already
-  use.
+- **Ecosystem** — a DevTools panel, and **Riverpod / Bloc** `AsyncValue`
+  bridges.
 
 Full detail and later milestones in [`doc/ROADMAP.md`](doc/ROADMAP.md).
 Feedback and issues are very welcome — the roadmap is driven by what people

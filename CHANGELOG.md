@@ -1,3 +1,14 @@
+## 0.2.0-dev.4
+
+- **Example:** rebuilt as a verification harness for all 0.2.0 features —
+  pagination with `keepPreviousData` (dimmed previous page while loading), a
+  "Fail next" retry demo, and a "make next create fail" toggle that shows the
+  optimistic insert being rolled back automatically.
+- **Tests:** 100% line coverage on `lib/src` (added `refetch()`,
+  `refetchOnResume`, custom-key `toString` fallback, idle getters, singleton).
+- **Docs:** added `doc/VERIFICATION.md` (status, remaining TODOs, how to verify
+  the prerelease). README updated for the 0.2.0-dev feature set.
+
 ## 0.2.0-dev.3
 
 - **New: `keepPreviousData` / `placeholderData`.** `QueryBuilder.keepPreviousData`
