@@ -19,7 +19,7 @@ and [SWR](https://swr.vercel.app/).
 > semantics are covered by tests (100% line coverage on `lib/src`) and it runs
 > on every platform (mobile, desktop, **web**).
 >
-> Trying the prerelease: `swrly: 0.2.0-dev.3` (pin exactly — prereleases aren't
+> Trying the prerelease: `swrly: 0.2.0-dev.4` (pin exactly — prereleases aren't
 > picked by `^` constraints).
 
 ### New in 0.2.0 (dev)
@@ -89,7 +89,8 @@ cd example && flutter run -d chrome # web (real dio calls to a public API)
 
 ```yaml
 dependencies:
-  swrly: ^0.1.1
+  swrly: ^0.1.0          # latest stable
+  # swrly: 0.2.0-dev.4   # opt into the 0.2.0 prerelease (retry, rollback, keepPreviousData)
 ```
 
 ## How it works
@@ -165,6 +166,24 @@ MutationBuilder<Post, String>(
 )
 ```
 
+**Optimistic update with automatic rollback (0.2.0)** — `onMutate` runs before
+the request and returns a rollback closure that swrly runs for you if it fails:
+
+```dart
+MutationBuilder<Post, String>(
+  mutationFn: createPost,
+  onMutate: (title) {
+    final prev = QueryClient.instance.getQueryData<List<Post>>(['posts']) ?? [];
+    QueryClient.instance.setQueryData<List<Post>>(
+        ['posts'], [Post.draft(title), ...prev]);   // show it instantly
+    return () => QueryClient.instance
+        .setQueryData<List<Post>>(['posts'], prev);   // auto-rollback on error
+  },
+  onSettled: (_) => QueryClient.instance.invalidateQueries(['posts']),
+  builder: ...,
+)
+```
+
 ## How it compares
 
 ### vs `FutureBuilder`
@@ -213,11 +232,13 @@ for state.
   `invalidateQueriesWhere((key) => bool)`, `setQueryData` / `getQueryData`,
   `removeQueries`, `clear`.
 - **`QueryBuilder<T>`** — subscribes a widget to a key; rebuilds on state
-  changes; auto-unsubscribes (drives GC). `enabled`, `refetchOnResume`.
-- **`MutationBuilder<T, V>`** — `mutate(vars)` with `onSuccess` / `onError` /
-  `onSettled`.
-- **`QueryState<T>`** — `isLoading` / `isSuccess` / `isError`, `data`, `error`,
-  and `isFetching` (a background refetch while data is present).
+  changes; auto-unsubscribes (drives GC). `enabled`, `refetchOnResume`,
+  `retry` / `retryDelay`, `keepPreviousData` / `placeholderData`.
+- **`MutationBuilder<T, V>`** — `mutate(vars)` with `onMutate` (optimistic +
+  rollback) / `onSuccess` / `onError` / `onSettled`.
+- **`QueryState<T>`** — `isLoading` / `isSuccess` / `isError`, `data`, `hasData`,
+  `error`, `isFetching` (background refetch while data is present), and
+  `isPlaceholderData`.
 
 See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 
