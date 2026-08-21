@@ -1,3 +1,14 @@
+## 0.1.0
+
+- **Example:** rebuilt around a real **dio** client hitting a public API, with a
+  live request counter + event log so the cache is *observable* — cache hits
+  show as "0 requests", keyed detail queries (`['post', id]`) demonstrate
+  per-key caching, and mutations show optimistic `setQueryData`. Runs on web.
+- **Docs:** README overhauled — "why server state", how-it-works flow, and
+  comparison tables (vs `FutureBuilder`, vs Riverpod/Bloc, vs a dio cache
+  interceptor). `docs/` renamed to `doc/` (pub convention); added pubspec topics.
+- Bundles all the `0.0.2` cache-correctness fixes below.
+
 ## 0.0.2
 
 - **Fix:** `invalidateQueries(refetch: true)` now actually refetches active

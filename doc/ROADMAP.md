@@ -10,7 +10,16 @@
 - `cacheTime` GC after last subscriber leaves
 - `refetchOnResume` via `WidgetsBindingObserver`
 
-## v0.1 — Usability polish
+## v0.1.0 — Correctness + real-world example (shipped)
+
+- Cache-correctness fixes: real `invalidateQueries` refetch, per-fetch
+  generation guard (no stale-overwrites-fresh), nullable-data freshness,
+  monotonic-clock staleTime, disposal-safe GC, `enabled` false→true kick-off.
+- Example rebuilt around a real **dio** client with a live request counter, a
+  keyed detail query, and optimistic `setQueryData`. README with comparison
+  tables. Runs on web.
+
+## Next — Usability polish
 
 - **`useQuery` / `useMutation` hooks** for `flutter_hooks` users
 - **Structural sharing** — preserve identity of unchanged nested fields on refetch
