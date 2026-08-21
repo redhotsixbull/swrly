@@ -19,22 +19,38 @@ and [SWR](https://swr.vercel.app/).
 
 ## Why swrly?
 
-State managers like **Riverpod / Bloc / Provider** are built for **client
-state** — the stuff your app owns (form inputs, toggles, navigation). But the
-data on your **server** behaves differently: it's shared, it goes stale, it
-needs deduping, background refetching, and invalidation after writes. Flutter
-gives you `FutureBuilder` for a *single* fetch, but it has **no cache** — it
-re-runs on every rebuild, can't dedupe, share, or invalidate.
+**Server state** — the data you fetch from an API — behaves differently from the
+**client state** your app owns (form inputs, toggles, navigation). It's shared,
+it goes stale, and it wants deduping, background refetching, and invalidation
+after writes. `swrly` is a small, focused cache for exactly that, modelled on
+TanStack Query.
 
-`swrly` is the missing piece for **server state**: a keyed cache that sits
-between your UI and your HTTP client.
+**Being honest about where it fits:**
 
-### It works with your existing HTTP client (e.g. `dio`)
+- vs **`FutureBuilder`** — no contest: `FutureBuilder` has no cache (it re-runs
+  on rebuild) and can't dedupe, share, or invalidate. `swrly` wins here easily.
+- vs **Riverpod / Bloc** — these are excellent, and Riverpod's
+  `FutureProvider.family` / `AsyncNotifier` *can* cache server state and
+  `ref.invalidate` it. So `swrly` isn't "the only way." Its pitch is narrower
+  and honest: a **dedicated** server-state cache with **stale-while-revalidate
+  built in** (`staleTime`/`cacheTime`, request dedupe, optimistic writes), a
+  familiar TanStack-Query API, and **no framework to adopt** — it's just an
+  object you can drop into any app (including a Riverpod/Bloc one).
+- vs a **dio cache interceptor** — that caches HTTP responses by URL; `swrly`
+  caches app state by logical `queryKey` and also gives you loading/error/
+  `isFetching`, invalidation, and optimistic updates (see the table below).
 
-`swrly` doesn't fetch anything itself — you give it a `queryFn` (a `dio`/`http`
-call) and a `queryKey`, and it caches the result under that key. The example app
-uses **dio** against a real API, with a live request counter so you can *see*
-the cache working:
+If you already live in Riverpod and are happy hand-rolling staleness/refetch on
+async providers, you may not need this. If you want that behaviour out of the
+box — or you're not on Riverpod — `swrly` is for you.
+
+### You don't wrap `dio` — you just pass your call
+
+`swrly` doesn't fetch anything itself and it's **not** an interceptor. You keep
+using `dio` (or `http`, GraphQL, Firestore…) exactly as-is and hand `swrly` the
+call as a `queryFn` plus a `queryKey`; it caches the result under that key. The
+example app uses **dio** against a real API, with a live request counter so you
+can *see* the cache working:
 
 <p align="center">
   <img src="doc/images/demo.gif" alt="Opening a post fetches once; re-opening it is a cache hit (the request counter doesn't move); a different post fetches once" width="300">
@@ -147,18 +163,25 @@ MutationBuilder<Post, String>(
 
 ### vs Riverpod / Bloc / Provider
 
-They manage **client state**; `swrly` manages **server state** — they're
-complementary, not competitors.
+Fair comparison: Riverpod **can** do server-state caching —
+`FutureProvider.family` caches by args and `ref.invalidate` re-runs it. So this
+isn't "Riverpod can't." It's about **how much is built in vs hand-rolled**, and
+whether you want a dedicated tool.
 
-| | Riverpod / Bloc | `swrly` |
+| | Riverpod async providers | `swrly` |
 |---|---|---|
-| Best for | Client state (UI, forms, nav) | Server state (fetched data) |
-| Cache keyed by request args | do-it-yourself | ✅ built-in (`queryKey`) |
-| Background refetch / staleness | do-it-yourself | ✅ built-in |
-| Request dedupe + invalidation | do-it-yourself | ✅ built-in |
+| Cache keyed by request args | ✅ `.family` | ✅ `queryKey` |
+| Invalidate | ✅ `ref.invalidate` | ✅ `invalidateQueries` (prefix) |
+| `staleTime` / stale-while-revalidate | hand-rolled | ✅ built-in |
+| Request dedupe across widgets | ✅ | ✅ |
+| Optimistic `setQueryData` + GC by subscription | hand-rolled | ✅ built-in |
+| Requires adopting the framework | yes (providers everywhere) | no — just an object |
 
-You can absolutely use both: Riverpod for app state, `swrly` for the data you
-fetch. (`swrly`'s `QueryClient` is just an object — expose it however you like.)
+Rule of thumb: **already all-in on Riverpod and happy hand-rolling staleness?**
+you may not need `swrly`. **Want TanStack-style server-state semantics out of the
+box, or you're not on Riverpod?** reach for `swrly`. You can also use both —
+Riverpod for client state, `swrly` for fetched data (its `QueryClient` is just
+an object you expose however you like).
 
 ### vs a `dio` cache interceptor
 
@@ -197,7 +220,27 @@ See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 - Cache keys must be primitives / lists / maps (structural equality); custom
   objects fall back to `toString()`.
 
-See [`doc/ROADMAP.md`](doc/ROADMAP.md).
+## Where this is going
+
+`swrly` is early (`0.1.0`) and will grow with real use. The plan, roughly in
+order — the point is to erase the "hand-rolled" gaps above so the honest
+comparison keeps tilting in `swrly`'s favour:
+
+- **Ergonomics first** — `useQuery` / `useMutation` for `flutter_hooks`, a
+  predicate form of `invalidateQueries`, and a non-widget `QueryObserver`.
+- **Robustness** — configurable **retry + backoff**, typed error surfaces, and
+  request **cancellation** when the last subscriber leaves.
+- **Bigger features** — **infinite / paginated** queries, first-class
+  **optimistic updates with rollback**, and window/online refetch triggers.
+- **Persistence** — a pluggable adapter interface (hive / shared_preferences /
+  drift) for offline-first caching.
+- **Ecosystem** — a DevTools panel to inspect the cache, and **Riverpod / Bloc
+  bridges** (`AsyncValue` adapters) so it composes cleanly with what you already
+  use.
+
+Full detail and later milestones in [`doc/ROADMAP.md`](doc/ROADMAP.md).
+Feedback and issues are very welcome — the roadmap is driven by what people
+actually hit.
 
 ## License
 
