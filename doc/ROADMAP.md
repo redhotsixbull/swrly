@@ -31,11 +31,19 @@
 - **Predicate-based `invalidateQueries`** — `invalidateQueriesWhere((key) => bool)`.
 - Documented last-writer-wins semantics for a shared key's captured `queryFn`.
 
+## v0.2.0 — Growth features (in progress, `dev` track)
+
+- ✅ **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
+  (`defaultRetry`/`defaultRetryDelay`). Exponential 1s→30s default. *(0.2.0-dev.1)*
+- ☐ Optimistic-update helpers — `onMutate` + rollback context
+- ☐ `useQueries`-style parallel combinator
+- ☐ Query cancellation when subscribers all leave
+- ☐ Infinite / paginated queries
+
 ## Next — Usability polish
 
 - **`useQuery` / `useMutation` hooks** for `flutter_hooks` users
 - **Structural sharing** — preserve identity of unchanged nested fields on refetch
-- **Retry policy** — configurable retry count + backoff per query
 - **Better error surface** — typed error variants, network-vs-parse distinction
 - **`QueryObserver` (imperative API)** for non-widget consumers
 

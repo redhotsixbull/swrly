@@ -7,6 +7,18 @@ import 'query_state.dart';
 
 typedef QueryFn<T> = Future<T> Function();
 
+/// Computes the delay before retry attempt [attempt] (1-based: `1` is the first
+/// retry). Return [Duration.zero] for an immediate retry.
+typedef RetryDelay = Duration Function(int attempt);
+
+/// Default backoff: exponential from 1s, doubling each attempt, capped at 30s
+/// (1s, 2s, 4s, 8s, …). Mirrors TanStack Query's default.
+Duration defaultRetryDelayFn(int attempt) {
+  final exp = attempt <= 0 ? 0 : (attempt - 1).clamp(0, 30);
+  final ms = (1000 * (1 << exp)).clamp(0, 30000);
+  return Duration(milliseconds: ms);
+}
+
 /// A single cache slot for one [QueryKey]. Holds the current [state], the
 /// broadcast [stream] that widgets subscribe to, the in-flight request (for
 /// deduplication), a monotonic freshness stamp and a garbage-collection timer.
@@ -71,12 +83,23 @@ class QueryClient {
   QueryClient({
     this.defaultStaleTime = Duration.zero,
     this.defaultCacheTime = const Duration(minutes: 5),
-  });
+    this.defaultRetry = 0,
+    RetryDelay? defaultRetryDelay,
+  }) : defaultRetryDelay = defaultRetryDelay ?? defaultRetryDelayFn;
 
   static final QueryClient instance = QueryClient();
 
   final Duration defaultStaleTime;
   final Duration defaultCacheTime;
+
+  /// Default number of **retries** (attempts after the first) when a `queryFn`
+  /// throws. `0` (the default) disables retry — errors surface immediately, as
+  /// in 0.1.x. Override per query via [fetchQuery]/`QueryBuilder.retry`.
+  final int defaultRetry;
+
+  /// Default backoff between retries. See [defaultRetryDelayFn] (exponential,
+  /// 1s→30s). Override per query via [fetchQuery]/`QueryBuilder.retryDelay`.
+  final RetryDelay defaultRetryDelay;
 
   /// Monotonic clock used for freshness checks. Immune to wall-clock jumps
   /// (NTP sync, timezone/DST changes) that would corrupt `DateTime.now()`
@@ -132,6 +155,8 @@ class QueryClient {
     required QueryKey key,
     required QueryFn<T> fn,
     Duration? staleTime,
+    int? retry,
+    RetryDelay? retryDelay,
   }) {
     final entry = _entryFor<T>(key);
     final effectiveStale = staleTime ?? defaultStaleTime;
@@ -139,7 +164,8 @@ class QueryClient {
     // Capture the typed fn/entry so invalidateQueries can refetch with the
     // correct type argument later (last-writer-wins, see [QueryEntry.refetcher]).
     entry.refetcher = () {
-      entry._inflight = _runFetch<T>(entry, fn);
+      entry._inflight =
+          _runFetch<T>(entry, fn, retry: retry, retryDelay: retryDelay);
     };
 
     final fresh = entry.freshAt != null &&
@@ -155,7 +181,7 @@ class QueryClient {
     final inflight = entry._inflight;
     if (inflight != null) return inflight;
 
-    final future = _runFetch<T>(entry, fn);
+    final future = _runFetch<T>(entry, fn, retry: retry, retryDelay: retryDelay);
     entry._inflight = future;
     _armGcIfIdle(entry);
     return future;
@@ -171,16 +197,32 @@ class QueryClient {
     required QueryKey key,
     required QueryFn<T> fn,
     Duration? staleTime,
+    int? retry,
+    RetryDelay? retryDelay,
   }) {
     final entry = _entryFor<T>(key);
     entry.refetcher = () {
-      entry._inflight = _runFetch<T>(entry, fn);
+      entry._inflight =
+          _runFetch<T>(entry, fn, retry: retry, retryDelay: retryDelay);
     };
     _armGcIfIdle(entry);
   }
 
-  Future<T> _runFetch<T>(QueryEntry<T> entry, QueryFn<T> fn) async {
+  Future<T> _runFetch<T>(
+    QueryEntry<T> entry,
+    QueryFn<T> fn, {
+    int? retry,
+    RetryDelay? retryDelay,
+  }) async {
     final token = ++entry.generation;
+    final maxRetries = retry ?? defaultRetry;
+    final delayFn = retryDelay ?? defaultRetryDelay;
+
+    // True while this fetch is still the newest and the entry is alive. A
+    // superseded (newer fetch / setQueryData / invalidate) or disposed entry
+    // must silently drop its result and stop retrying.
+    bool isCurrent() => token == entry.generation && !entry._controller.isClosed;
+
     // Entering a fetch clears any stale error/stackTrace so a loading state
     // never carries an error left over from a previous failure.
     entry._emit(entry.state.copyWith(
@@ -189,33 +231,48 @@ class QueryClient {
       error: null,
       stackTrace: null,
     ));
-    try {
-      final result = await fn();
-      // Only write back if we are still the newest fetch. A superseded request
-      // (invalidate / setQueryData / newer fetch) silently drops its result.
-      if (token == entry.generation) {
-        entry.freshAt = _clock.elapsed;
-        entry._emit(QueryState<T>(
-          status: QueryStatus.success,
-          data: result,
-          hasData: true,
-          updatedAt: DateTime.now(),
-          isFetching: false,
-        ));
+
+    var attempt = 0;
+    while (true) {
+      try {
+        final result = await fn();
+        // Only write back if we are still the newest fetch.
+        if (isCurrent()) {
+          entry.freshAt = _clock.elapsed;
+          entry._emit(QueryState<T>(
+            status: QueryStatus.success,
+            data: result,
+            hasData: true,
+            updatedAt: DateTime.now(),
+            isFetching: false,
+          ));
+          entry._inflight = null;
+        }
+        return result;
+      } catch (e, st) {
+        // Superseded/disposed while awaiting → drop silently, do not retry and
+        // do not touch _inflight (a newer fetch now owns it).
+        if (!isCurrent()) rethrow;
+
+        if (attempt >= maxRetries) {
+          // Retries exhausted → surface the error, retaining last-good data.
+          entry._emit(entry.state.copyWith(
+            status: QueryStatus.error,
+            error: e,
+            stackTrace: st,
+            isFetching: false,
+          ));
+          entry._inflight = null;
+          rethrow;
+        }
+
+        attempt += 1;
+        await Future<void>.delayed(delayFn(attempt));
+        // Re-check after the backoff: a supersede/dispose during the wait must
+        // abort the retry.
+        if (!isCurrent()) rethrow;
+        // loop → next attempt (still isFetching, no error emitted yet)
       }
-      return result;
-    } catch (e, st) {
-      if (token == entry.generation) {
-        entry._emit(entry.state.copyWith(
-          status: QueryStatus.error,
-          error: e,
-          stackTrace: st,
-          isFetching: false,
-        ));
-      }
-      rethrow;
-    } finally {
-      if (token == entry.generation) entry._inflight = null;
     }
   }
 

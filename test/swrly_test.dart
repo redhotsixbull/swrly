@@ -664,4 +664,117 @@ void main() {
       expect(kept.error, 'boom', reason: 'omitted error is preserved');
     });
   });
+
+  group('retry + backoff (0.2.0)', () {
+    test('retries N times then surfaces the error', () async {
+      final client = QueryClient();
+      var calls = 0;
+      await expectLater(
+        client.fetchQuery<int>(
+          key: ['r'],
+          fn: () async {
+            calls += 1;
+            throw StateError('boom');
+          },
+          retry: 2,
+          retryDelay: (_) => Duration.zero,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(calls, 3, reason: '1 initial attempt + 2 retries');
+      expect(client.stateOf<int>(['r']).isError, isTrue);
+    });
+
+    test('succeeds on a later attempt without surfacing an error', () async {
+      final client = QueryClient();
+      var calls = 0;
+      final result = await client.fetchQuery<int>(
+        key: ['r'],
+        fn: () async {
+          calls += 1;
+          if (calls < 3) throw StateError('transient');
+          return 42;
+        },
+        retry: 5,
+        retryDelay: (_) => Duration.zero,
+      );
+      expect(result, 42);
+      expect(calls, 3);
+      final s = client.stateOf<int>(['r']);
+      expect(s.isSuccess, isTrue);
+      expect(s.error, isNull, reason: 'a recovered retry surfaces no error');
+      expect(s.data, 42);
+    });
+
+    test('retryDelay receives 1-based attempt numbers', () async {
+      final client = QueryClient();
+      final attempts = <int>[];
+      await expectLater(
+        client.fetchQuery<int>(
+          key: ['r'],
+          fn: () async => throw StateError('x'),
+          retry: 3,
+          retryDelay: (n) {
+            attempts.add(n);
+            return Duration.zero;
+          },
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(attempts, [1, 2, 3]);
+    });
+
+    test('defaultRetryDelayFn is exponential, capped at 30s', () {
+      expect(defaultRetryDelayFn(1), const Duration(seconds: 1));
+      expect(defaultRetryDelayFn(2), const Duration(seconds: 2));
+      expect(defaultRetryDelayFn(3), const Duration(seconds: 4));
+      expect(defaultRetryDelayFn(20), const Duration(seconds: 30));
+    });
+
+    test('client defaultRetry applies when per-query retry is omitted',
+        () async {
+      final client = QueryClient(
+        defaultRetry: 2,
+        defaultRetryDelay: (_) => Duration.zero,
+      );
+      var calls = 0;
+      await expectLater(
+        client.fetchQuery<int>(
+          key: ['r'],
+          fn: () async {
+            calls += 1;
+            throw StateError('x');
+          },
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(calls, 3, reason: 'client default of 2 retries → 3 attempts');
+    });
+
+    test('a supersede during the retry backoff stops further attempts',
+        () async {
+      final client = QueryClient();
+      var calls = 0;
+      final f = client.fetchQuery<int>(
+        key: ['r'],
+        fn: () async {
+          calls += 1;
+          throw StateError('x');
+        },
+        retry: 5,
+        retryDelay: (_) => const Duration(milliseconds: 30),
+      );
+      // Let the first attempt fail and enter the 30ms backoff…
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      // …then supersede with an optimistic write.
+      client.setQueryData<int>(['r'], 99);
+      await f.catchError((_) => 0); // superseded fetch rethrows its last error
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(calls, 1, reason: 'no further attempts after supersede');
+      expect(client.stateOf<int>(['r']).isSuccess, isTrue);
+      expect(client.getQueryData<int>(['r']), 99,
+          reason: 'the optimistic value survives, no error clobbers it');
+    });
+  });
 }

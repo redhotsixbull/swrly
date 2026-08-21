@@ -22,6 +22,8 @@ class QueryBuilder<T> extends StatefulWidget {
     this.client,
     this.enabled = true,
     this.refetchOnResume = true,
+    this.retry,
+    this.retryDelay,
   });
 
   final QueryKey queryKey;
@@ -31,6 +33,14 @@ class QueryBuilder<T> extends StatefulWidget {
   final QueryClient? client;
   final bool enabled;
   final bool refetchOnResume;
+
+  /// Number of retries (attempts after the first) when [queryFn] throws.
+  /// Defaults to the client's `defaultRetry` when null.
+  final int? retry;
+
+  /// Backoff before each retry. Defaults to the client's `defaultRetryDelay`
+  /// when null.
+  final RetryDelay? retryDelay;
 
   @override
   State<QueryBuilder<T>> createState() => _QueryBuilderState<T>();
@@ -78,6 +88,8 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         key: widget.queryKey,
         fn: widget.queryFn,
         staleTime: widget.staleTime,
+        retry: widget.retry,
+        retryDelay: widget.retryDelay,
       );
       if (!oldWidget.enabled) {
         // enabled flipped false → true: kick off the fetch initState skipped.
@@ -111,6 +123,8 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         key: widget.queryKey,
         fn: widget.queryFn,
         staleTime: widget.staleTime,
+        retry: widget.retry,
+        retryDelay: widget.retryDelay,
       );
     } catch (_) {
       // Error state already emitted via stream.
@@ -124,6 +138,8 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         key: widget.queryKey,
         fn: widget.queryFn,
         staleTime: Duration.zero,
+        retry: widget.retry,
+        retryDelay: widget.retryDelay,
       );
     } catch (_) {}
   }

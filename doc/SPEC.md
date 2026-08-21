@@ -97,6 +97,26 @@ the test suite (`test/swrly_test.dart`) pins down.
 - `removeQueries(prefix)` and `clear()` dispose immediately (closing streams,
   cancelling timers).
 
+## 8.1 Retry + backoff (0.2.0)
+
+- A `queryFn` that throws is retried up to `retry` times (attempts after the
+  first). `retry` resolves per query, falling back to the client's
+  `defaultRetry` (default `0` → no retry, errors surface immediately as in
+  0.1.x).
+- Between attempts the fetch waits `retryDelay(attempt)` where `attempt` is
+  **1-based** (`1` is the first retry). Default is `defaultRetryDelayFn`:
+  exponential 1s→30s (1s, 2s, 4s, …, capped at 30s).
+- While retrying, the entry stays `isFetching` and MUST NOT emit an `error`
+  state. Only after retries are exhausted does it transition to `error`
+  (retaining last-good `data`). A retry that eventually succeeds emits `success`
+  with **no** intervening error.
+- Retries respect the generation guard (§4): if a newer `fetchQuery`,
+  `setQueryData`, or `invalidateQueries` supersedes the entry (or it is
+  disposed) during an attempt or its backoff, the retry loop stops and the
+  result is dropped silently.
+- Deduplication (§3) holds across retries: concurrent awaiters share the one
+  retrying in-flight future.
+
 ## 9. Widgets
 
 ### `QueryBuilder<T>`
@@ -107,9 +127,13 @@ the test suite (`test/swrly_test.dart`) pins down.
   the fetch that was skipped (dependent-query pattern).
 - Key or client change re-subscribes to the new entry.
 - A rebuild on the **same key/client** re-captures the current
-  `queryFn`/`staleTime` (so a later `invalidateQueries` refetch uses the current
-  closure) but MUST NOT refetch — inline closures change every build, so a
-  `queryFn` identity change alone is not a refetch trigger.
+  `queryFn`/`staleTime`/`retry`/`retryDelay` (so a later `invalidateQueries`
+  refetch uses the current closure and retry policy) but MUST NOT refetch —
+  inline closures change every build, so a `queryFn` identity change alone is
+  not a refetch trigger. Priming happens only while `enabled` is true, so a
+  disabled query never gets a refetcher (invalidation skips it).
+- `retry`/`retryDelay` (§8.1) apply to the initial fetch, `refetch()`, and
+  invalidation-driven refetches; they fall back to the client defaults.
 - `refetchOnResume: true` refetches on `AppLifecycleState.resumed`.
 - `setState` is guarded by `mounted`; no setState-after-dispose.
 
@@ -122,6 +146,7 @@ the test suite (`test/swrly_test.dart`) pins down.
   guarded by `mounted`.
 - Returns the result, or `null` if the mutation threw.
 
-## Not yet (out of scope for 0.0.x)
-Infinite queries, retry/backoff, `select`/`placeholderData`, window-focus
-refetch, persistence, devtools.
+## Not yet (out of scope)
+Infinite queries, `select`/`placeholderData`/`keepPreviousData`, optimistic
+rollback helper, request cancellation, window-focus refetch, persistence,
+devtools.

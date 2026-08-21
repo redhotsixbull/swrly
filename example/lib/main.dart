@@ -42,6 +42,11 @@ class Net {
   static final ValueNotifier<int> calls = ValueNotifier<int>(0);
   static final ValueNotifier<List<String>> log = ValueNotifier<List<String>>([]);
 
+  /// When > 0, the next N `_timed` calls throw before hitting the network, to
+  /// demo swrly's retry + backoff. Each failed attempt still counts as a
+  /// request (so you can watch the counter tick up and the query recover).
+  static final ValueNotifier<int> failNext = ValueNotifier<int>(0);
+
   static void note(String m) {
     final next = [...log.value, m];
     log.value = next.length > 10 ? next.sublist(next.length - 10) : next;
@@ -53,11 +58,16 @@ class Net {
     note('▶ #$id  $label …');
     final sw = Stopwatch()..start();
     try {
+      if (failNext.value > 0) {
+        failNext.value -= 1;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        throw Exception('simulated failure (retry demo)');
+      }
       final r = await run();
       note('✓ #$id  $label  ${sw.elapsedMilliseconds}ms');
       return r;
     } catch (_) {
-      note('✗ #$id  $label  failed');
+      note('✗ #$id  $label  failed → will retry');
       rethrow;
     }
   }
@@ -122,6 +132,11 @@ class _HomePageState extends State<HomePage> {
             onStale: (v) => setState(() => _staleSeconds = v),
             onInvalidate: () {
               Net.note('♻ invalidateQueries([posts])');
+              QueryClient.instance.invalidateQueries(const ['posts']);
+            },
+            onFailNext: () {
+              Net.failNext.value = 2;
+              Net.note('💥 next 2 requests will fail → retry should recover');
               QueryClient.instance.invalidateQueries(const ['posts']);
             },
           ),
@@ -194,11 +209,13 @@ class _Controls extends StatelessWidget {
     required this.staleSeconds,
     required this.onStale,
     required this.onInvalidate,
+    required this.onFailNext,
   });
 
   final int staleSeconds;
   final ValueChanged<int> onStale;
   final VoidCallback onInvalidate;
+  final VoidCallback onFailNext;
 
   @override
   Widget build(BuildContext context) {
@@ -221,6 +238,12 @@ class _Controls extends StatelessWidget {
           ),
           const Spacer(),
           OutlinedButton.icon(
+            icon: const Icon(Icons.bolt, size: 18),
+            label: const Text('Fail next'),
+            onPressed: onFailNext,
+          ),
+          const SizedBox(width: 6),
+          OutlinedButton.icon(
             icon: const Icon(Icons.autorenew, size: 18),
             label: const Text('Invalidate'),
             onPressed: onInvalidate,
@@ -241,6 +264,10 @@ class _PostsList extends StatelessWidget {
       queryKey: const ['posts'],
       queryFn: Net.fetchPosts,
       staleTime: staleTime,
+      // Retry up to 3× with a short visible backoff so the "Fail next" button
+      // demonstrates recovery (watch the log: ✗ … ✗ … ✓).
+      retry: 3,
+      retryDelay: (attempt) => Duration(milliseconds: 300 * attempt),
       builder: (context, state, refetch) {
         if (state.isLoading && !state.hasData) {
           return const Center(child: CircularProgressIndicator());

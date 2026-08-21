@@ -1,3 +1,16 @@
+## 0.2.0-dev.1
+
+First 0.2.0 feature, on the `dev` prerelease track for real-world verification.
+
+- **New: retry + backoff.** A `queryFn` that throws is retried up to `retry`
+  times with a `retryDelay(attempt)` backoff. Configure per query
+  (`QueryBuilder.retry` / `retryDelay`, `fetchQuery(retry:, retryDelay:)`) or
+  globally (`QueryClient(defaultRetry:, defaultRetryDelay:)`). Default is `0`
+  retries (unchanged 0.1.x behaviour); `defaultRetryDelayFn` provides an
+  exponential 1s→30s backoff. While retrying the query stays `isFetching` and
+  only surfaces an `error` after retries are exhausted; retries respect the
+  generation guard (a supersede/dispose stops them). See SPEC §8.1.
+
 ## 0.1.1-dev.1
 
 Prerelease of the 0.1.1 correctness patch, published for verification before the

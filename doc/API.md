@@ -11,6 +11,8 @@ but you can create isolated clients for tests.
 QueryClient({
   Duration defaultStaleTime = Duration.zero,
   Duration defaultCacheTime = const Duration(minutes: 5),
+  int defaultRetry = 0,
+  RetryDelay? defaultRetryDelay,   // defaults to defaultRetryDelayFn
 })
 ```
 
@@ -18,10 +20,14 @@ QueryClient({
   window, a re-fetch call returns the cached value without hitting `queryFn`.
 - `defaultCacheTime` — how long an entry stays in memory after its last
   subscriber leaves. On expiry, the entry is removed.
+- `defaultRetry` — default number of retries (attempts after the first) when a
+  `queryFn` throws. `0` disables retry. Override per query.
+- `defaultRetryDelay` — `Duration Function(int attempt)` backoff (1-based
+  attempt). Defaults to `defaultRetryDelayFn` (exponential 1s→30s).
 
 ### Methods
 
-- `Future<T> fetchQuery<T>({key, fn, staleTime})` — imperative fetch. Uses cache if fresh, dedups in-flight requests, emits state updates through the stream.
+- `Future<T> fetchQuery<T>({key, fn, staleTime, retry, retryDelay})` — imperative fetch. Uses cache if fresh, dedups in-flight requests, emits state updates through the stream. `retry`/`retryDelay` fall back to the client defaults.
 - `Stream<QueryState<T>> observe<T>(key)` — broadcast stream of state changes.
 - `QueryState<T> stateOf<T>(key)` — synchronous read of current state.
 - `void invalidateQueries(prefix, {bool refetch = true})` — mark all keys starting with `prefix` stale. With `refetch: true` (default), entries that currently have subscribers are refetched immediately using their last captured `queryFn` (last-writer-wins for a shared key); others refetch on next observe.
@@ -86,11 +92,17 @@ QueryBuilder<T>({
   QueryClient? client,            // defaults to QueryClient.instance
   bool enabled = true,
   bool refetchOnResume = true,
+  int? retry,                     // falls back to client.defaultRetry
+  RetryDelay? retryDelay,         // falls back to client.defaultRetryDelay
 })
 ```
 
 The builder callback receives `(context, state, refetch)`. Call `refetch()`
 to force a fresh fetch (bypassing staleness).
+
+`retry` retries a throwing `queryFn` that many times with a `retryDelay(attempt)`
+backoff; while retrying the state stays `isFetching` and only becomes `isError`
+once retries are exhausted.
 
 Setting `enabled: false` skips the initial fetch — useful for dependent
 queries: don't run a `posts(userId)` query until you have the `userId`.

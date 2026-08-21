@@ -214,8 +214,8 @@ See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 ## Known limitations (0.1.x)
 
 - **In-memory only** — no disk persistence / offline cache yet.
-- No infinite/paginated query helper, no automatic retry/backoff, no
-  window-focus refetch (app-resume refetch is supported), no devtools.
+- No infinite/paginated query helper, no window-focus refetch (app-resume
+  refetch is supported), no devtools. (Retry/backoff landed in 0.2.0-dev.)
 - `setQueryData` optimistic writes have no built-in rollback helper — handle
   `onError` yourself.
 - Cache keys must be primitives / lists / maps (structural equality); custom
@@ -230,8 +230,8 @@ comparison keeps tilting in `swrly`'s favour:
 - **Ergonomics first** — `useQuery` / `useMutation` for `flutter_hooks`, and a
   non-widget `QueryObserver`. (A predicate form of `invalidateQueries` shipped in
   0.1.1.)
-- **Robustness** — configurable **retry + backoff**, typed error surfaces, and
-  request **cancellation** when the last subscriber leaves.
+- **Robustness** — typed error surfaces and request **cancellation** when the
+  last subscriber leaves. (Configurable **retry + backoff** landed in 0.2.0-dev.)
 - **Bigger features** — **infinite / paginated** queries, first-class
   **optimistic updates with rollback**, and window/online refetch triggers.
 - **Persistence** — a pluggable adapter interface (hive / shared_preferences /
