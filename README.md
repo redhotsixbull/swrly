@@ -1,7 +1,13 @@
 # swrly
 
-[![pub package](https://img.shields.io/pub/v/swrly.svg)](https://pub.dev/packages/swrly)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <img src="doc/images/hero.png" alt="swrly — server-state cache for Flutter" width="820">
+</p>
+
+<p align="center">
+  <a href="https://pub.dev/packages/swrly"><img src="https://img.shields.io/pub/v/swrly.svg" alt="pub package"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"></a>
+</p>
 
 **Async data-fetching & server-state cache for Flutter** — dedupe requests,
 cache by query key, serve instantly while revalidating in the background, and
@@ -30,13 +36,17 @@ call) and a `queryKey`, and it caches the result under that key. The example app
 uses **dio** against a real API, with a live request counter so you can *see*
 the cache working:
 
+<p align="center">
+  <img src="doc/images/demo.gif" alt="Opening a post fetches once; re-opening it is a cache hit (the request counter doesn't move); a different post fetches once" width="300">
+</p>
+
+The `dio requests` counter only moves on a real network call — watch it in the
+breakdown below: re-opening the same post serves the detail **from cache (0
+requests, instant)**, while a different post id is a separate cache entry:
+
 | Real fetch (dio) | Re-open same key → cache hit | Different key → new fetch |
 |---|---|---|
 | ![list](doc/images/list.png) | ![cache hit](doc/images/cache-hit.png) | ![keyed](doc/images/keyed.png) |
-
-The `dio requests` counter only moves on a real network call. Re-opening a post
-served the detail **from cache — 0 requests, instant**; a different post id is a
-separate cache entry, so it fetches once. That's query-key-based caching.
 
 ```bash
 cd example && flutter run          # mobile / desktop
