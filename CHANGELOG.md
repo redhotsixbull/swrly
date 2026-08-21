@@ -1,3 +1,15 @@
+## 0.1.1-dev.1
+
+Prerelease of the 0.1.1 correctness patch, published for verification before the
+stable `0.1.1` release. Everything below plus the review fix noted here.
+
+- **Fix (review):** `QueryBuilder` only re-captures the refetcher (`primeRefetcher`)
+  on a same-key rebuild **when `enabled` is true**. Previously a disabled query
+  that rebuilt could get a refetcher installed, so a later `invalidateQueries`
+  would fetch a query the caller set `enabled: false` — violating SPEC §9. Added
+  a regression test plus tests for `onError`/`onSettled` on unmount, `hasData`
+  retention across errors, and `copyWith` field clearing (31 tests total).
+
 ## 0.1.1
 
 Correctness patch — behaviour fixes found in review, all backward compatible.

@@ -552,5 +552,116 @@ void main() {
       expect(post1Calls, 2, reason: 'matched entry was invalidated → refetched');
       expect(post2Calls, 1, reason: 'unmatched entry stayed fresh');
     });
+
+    testWidgets(
+        'a disabled query is never fetched by invalidateQueries, even after a rebuild',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      Widget build(String label) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<int>(
+              client: client,
+              enabled: false,
+              queryKey: const ['d'],
+              queryFn: () async {
+                calls += 1;
+                return 1;
+              },
+              builder: (context, state, refetch) => Text('label=$label'),
+            ),
+          );
+
+      await tester.pumpWidget(build('a'));
+      await tester.pump();
+      expect(calls, 0, reason: 'disabled query does not fetch on mount');
+
+      // A parent-driven rebuild while still disabled must not install a
+      // refetcher (regression guard for SPEC §9).
+      await tester.pumpWidget(build('b'));
+      await tester.pump();
+
+      client.invalidateQueries(['d']);
+      await tester.pumpAndSettle();
+      expect(calls, 0,
+          reason: 'invalidateQueries must not fetch a disabled query');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('MutationBuilder runs onError/onSettled even if unmounted',
+        (tester) async {
+      var onErrorCalls = 0;
+      var onSettledCalls = 0;
+      late Future<int?> Function(int) trigger;
+      final gate = Completer<int>();
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (v) => gate.future,
+            onError: (_, __, ___) => onErrorCalls += 1,
+            onSettled: (_) => onSettledCalls += 1,
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('idle');
+            },
+          ),
+        ),
+      );
+
+      final future = trigger(1);
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox()); // unmount mid-flight
+      gate.completeError(StateError('boom')); // resolve as error
+      await future;
+
+      expect(onErrorCalls, 1,
+          reason: 'onError must fire on the error path even when disposed');
+      expect(onSettledCalls, 1, reason: 'onSettled must always fire');
+    });
+
+    test('hasData is retained across an error transition', () async {
+      final client = QueryClient();
+      client.setQueryData<int>(['h'], 5); // success → hasData true
+      await expectLater(
+        client.fetchQuery<int>(
+            key: ['h'],
+            fn: () async => throw StateError('x'),
+            staleTime: Duration.zero),
+        throwsA(isA<StateError>()),
+      );
+      final s = client.stateOf<int>(['h']);
+      expect(s.isError, isTrue);
+      expect(s.hasData, isTrue, reason: 'last-good data survives an error');
+      expect(s.data, 5);
+    });
+
+    test('copyWith clears data/error/stackTrace when passed null', () {
+      const start = QueryState<int>(
+        status: QueryStatus.error,
+        data: 7,
+        hasData: true,
+        error: 'boom',
+      );
+      final cleared = start.copyWith(
+        status: QueryStatus.success,
+        data: null,
+        hasData: false,
+        error: null,
+        stackTrace: null,
+      );
+      expect(cleared.data, isNull, reason: 'explicit null clears data');
+      expect(cleared.error, isNull, reason: 'explicit null clears error');
+      expect(cleared.stackTrace, isNull);
+      expect(cleared.hasData, isFalse);
+
+      // Omitting a field must preserve it (sentinel, not null).
+      final kept = start.copyWith(isFetching: true);
+      expect(kept.data, 7, reason: 'omitted data is preserved');
+      expect(kept.error, 'boom', reason: 'omitted error is preserved');
+    });
   });
 }
