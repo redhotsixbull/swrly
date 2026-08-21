@@ -33,25 +33,32 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
   MutationState<T> _state = const MutationState<Never>.idle() as MutationState<T>;
 
   Future<T?> _mutate(V variables) async {
-    if (!mounted) return null;
-    setState(() => _state = MutationState<T>(status: MutationStatus.loading));
+    // Only `setState` is guarded by `mounted`; the app-level callbacks
+    // (onSuccess/onError/onSettled) MUST run even if the widget disposes
+    // mid-flight, otherwise a cache invalidation in onSuccess would silently
+    // be skipped.
+    if (mounted) {
+      setState(() => _state = MutationState<T>(status: MutationStatus.loading));
+    }
     try {
       final result = await widget.mutationFn(variables);
-      if (!mounted) return result;
-      setState(() => _state = MutationState<T>(
-            status: MutationStatus.success,
-            data: result,
-          ));
+      if (mounted) {
+        setState(() => _state = MutationState<T>(
+              status: MutationStatus.success,
+              data: result,
+            ));
+      }
       widget.onSuccess?.call(result, variables);
       widget.onSettled?.call(variables);
       return result;
     } catch (e, st) {
-      if (!mounted) return null;
-      setState(() => _state = MutationState<T>(
-            status: MutationStatus.error,
-            error: e,
-            stackTrace: st,
-          ));
+      if (mounted) {
+        setState(() => _state = MutationState<T>(
+              status: MutationStatus.error,
+              error: e,
+              stackTrace: st,
+            ));
+      }
       widget.onError?.call(e, st, variables);
       widget.onSettled?.call(variables);
       return null;

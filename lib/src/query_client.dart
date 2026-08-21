@@ -36,9 +36,16 @@ class QueryEntry<T> {
   /// stale response can never clobber newer data (see [QueryClient._runFetch]).
   int generation = 0;
 
-  /// Re-runs the last [QueryFn] with its original type argument captured.
-  /// Populated by [QueryClient.fetchQuery]; used by `invalidateQueries` to
-  /// actively refetch active subscribers.
+  /// Re-runs the most recently captured [QueryFn] with its original type
+  /// argument. Populated by [QueryClient.fetchQuery] and
+  /// [QueryClient.primeRefetcher]; used by `invalidateQueries` to actively
+  /// refetch active subscribers.
+  ///
+  /// Semantics are **last-writer-wins**: the entry keeps whichever `queryFn`
+  /// was captured most recently. If two subscribers share one key with
+  /// genuinely different `queryFn`s (an anti-pattern — one key should map to one
+  /// data source), an invalidation refetch runs the last one captured. See
+  /// SPEC §6.
   void Function()? refetcher;
 
   final _controller = StreamController<QueryState<T>>.broadcast();
@@ -130,7 +137,7 @@ class QueryClient {
     final effectiveStale = staleTime ?? defaultStaleTime;
 
     // Capture the typed fn/entry so invalidateQueries can refetch with the
-    // correct type argument later.
+    // correct type argument later (last-writer-wins, see [QueryEntry.refetcher]).
     entry.refetcher = () {
       entry._inflight = _runFetch<T>(entry, fn);
     };
@@ -154,11 +161,33 @@ class QueryClient {
     return future;
   }
 
+  /// Re-captures the [QueryFn]/[staleTime] used for future
+  /// invalidation-driven refetches **without** triggering a fetch. Called by
+  /// [QueryBuilder] when it rebuilds with a new `queryFn`/`staleTime` on the
+  /// same key, so a later `invalidateQueries` refetch runs the current closure
+  /// rather than a stale one. Inline closures change every build, so priming
+  /// deliberately does not fetch.
+  void primeRefetcher<T>({
+    required QueryKey key,
+    required QueryFn<T> fn,
+    Duration? staleTime,
+  }) {
+    final entry = _entryFor<T>(key);
+    entry.refetcher = () {
+      entry._inflight = _runFetch<T>(entry, fn);
+    };
+    _armGcIfIdle(entry);
+  }
+
   Future<T> _runFetch<T>(QueryEntry<T> entry, QueryFn<T> fn) async {
     final token = ++entry.generation;
+    // Entering a fetch clears any stale error/stackTrace so a loading state
+    // never carries an error left over from a previous failure.
     entry._emit(entry.state.copyWith(
       status: entry.state.isSuccess ? entry.state.status : QueryStatus.loading,
       isFetching: true,
+      error: null,
+      stackTrace: null,
     ));
     try {
       final result = await fn();
@@ -169,6 +198,7 @@ class QueryClient {
         entry._emit(QueryState<T>(
           status: QueryStatus.success,
           data: result,
+          hasData: true,
           updatedAt: DateTime.now(),
           isFetching: false,
         ));
@@ -194,8 +224,23 @@ class QueryClient {
   /// actively refetched using their last [QueryFn]; entries without subscribers
   /// simply refetch the next time they are observed.
   void invalidateQueries(QueryKey prefix, {bool refetch = true}) {
+    invalidateQueriesWhere(
+      (key) => queryKeyStartsWith(key, prefix),
+      refetch: refetch,
+    );
+  }
+
+  /// Predicate form of [invalidateQueries]: marks every entry whose key
+  /// satisfies [test] as stale (and, when [refetch] is true, actively refetches
+  /// those with subscribers). Use this when a prefix can't express the set —
+  /// e.g. invalidate every `['post', id]` regardless of position, or match on a
+  /// map field inside the key.
+  void invalidateQueriesWhere(
+    bool Function(QueryKey key) test, {
+    bool refetch = true,
+  }) {
     for (final entry in _entries.values) {
-      if (!queryKeyStartsWith(entry.key, prefix)) continue;
+      if (!test(entry.key)) continue;
       entry.freshAt = null;
       entry._emit(entry.state.copyWith(
         updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
@@ -215,6 +260,7 @@ class QueryClient {
     entry._emit(QueryState<T>(
       status: QueryStatus.success,
       data: data,
+      hasData: true,
       updatedAt: DateTime.now(),
       isFetching: false,
     ));

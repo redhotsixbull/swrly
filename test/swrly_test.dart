@@ -369,5 +369,188 @@ void main() {
       expect(find.text('failed'), findsOneWidget);
       expect(capturedError, isA<StateError>());
     });
+
+    testWidgets('runs onSuccess/onSettled even if unmounted mid-flight',
+        (tester) async {
+      var onSuccessCalls = 0;
+      var onSettledCalls = 0;
+      late Future<int?> Function(int) trigger;
+      final gate = Completer<int>();
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (v) => gate.future,
+            onSuccess: (_, __) => onSuccessCalls += 1,
+            onSettled: (_) => onSettledCalls += 1,
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('idle');
+            },
+          ),
+        ),
+      );
+
+      final future = trigger(1);
+      await tester.pump(); // loading setState while still mounted
+      await tester.pumpWidget(const SizedBox()); // unmount mid-flight
+      gate.complete(42); // now let the mutation resolve
+      await future;
+
+      expect(onSuccessCalls, 1,
+          reason: 'onSuccess must fire even though the widget disposed');
+      expect(onSettledCalls, 1,
+          reason: 'onSettled must always fire');
+    });
+  });
+
+  group('0.1.1 correctness fixes', () {
+    testWidgets('QueryBuilder<int?> with a null value reports hasData',
+        (tester) async {
+      final client = QueryClient();
+      late QueryState<int?> observed;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<int?>(
+            client: client,
+            queryKey: const ['maybe'],
+            queryFn: () async => null,
+            builder: (context, state, refetch) {
+              observed = state;
+              return Text('has=${state.hasData}');
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(observed.isSuccess, isTrue);
+      expect(observed.hasData, isTrue,
+          reason: 'a successful null value still has data (SPEC §2)');
+      expect(observed.data, isNull);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    test('a successful refetch after an error clears error/stackTrace',
+        () async {
+      final client = QueryClient();
+      var calls = 0;
+      Future<int> fn() async {
+        calls += 1;
+        if (calls == 1) throw StateError('boom');
+        return 7;
+      }
+
+      await expectLater(
+        client.fetchQuery<int>(key: ['q'], fn: fn, staleTime: Duration.zero),
+        throwsA(isA<StateError>()),
+      );
+      expect(client.stateOf<int>(['q']).isError, isTrue);
+      expect(client.stateOf<int>(['q']).error, isA<StateError>());
+
+      final result =
+          await client.fetchQuery<int>(key: ['q'], fn: fn, staleTime: Duration.zero);
+      expect(result, 7);
+      final state = client.stateOf<int>(['q']);
+      expect(state.isSuccess, isTrue);
+      expect(state.error, isNull, reason: 'stale error must be cleared');
+      expect(state.stackTrace, isNull, reason: 'stale stackTrace must be cleared');
+    });
+
+    test('invalidation refetch uses the most recently captured queryFn',
+        () async {
+      final client = QueryClient();
+      client.onSubscribe<int>(['shared']);
+
+      await client.fetchQuery<int>(
+          key: ['shared'], fn: () async => 1, staleTime: const Duration(minutes: 5));
+      // Second subscriber captures a different fn on the same key while data is
+      // still fresh (no refetch happens here, but the refetcher is updated).
+      await client.fetchQuery<int>(
+          key: ['shared'], fn: () async => 2, staleTime: const Duration(minutes: 5));
+      expect(client.getQueryData<int>(['shared']), 1);
+
+      client.invalidateQueries(['shared']);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(client.getQueryData<int>(['shared']), 2,
+          reason: 'last-writer-wins: invalidation runs the latest queryFn');
+      client.onUnsubscribe<int>(['shared']);
+    });
+
+    testWidgets(
+        'rebuild with a new queryFn re-primes invalidation without refetching',
+        (tester) async {
+      final client = QueryClient();
+      var fn1Calls = 0;
+      var fn2Calls = 0;
+      Widget build(int which) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<int>(
+              client: client,
+              queryKey: const ['p'],
+              staleTime: const Duration(minutes: 5),
+              queryFn: which == 1
+                  ? () async {
+                      fn1Calls += 1;
+                      return 1;
+                    }
+                  : () async {
+                      fn2Calls += 1;
+                      return 2;
+                    },
+              builder: (context, state, refetch) => Text('data=${state.data}'),
+            ),
+          );
+
+      await tester.pumpWidget(build(1));
+      await tester.pumpAndSettle();
+      expect(fn1Calls, 1);
+      expect(find.text('data=1'), findsOneWidget);
+
+      // Rebuild with a different fn on the same fresh key: must NOT refetch.
+      await tester.pumpWidget(build(2));
+      await tester.pumpAndSettle();
+      expect(fn2Calls, 0, reason: 'a plain rebuild must not refetch');
+      expect(find.text('data=1'), findsOneWidget);
+
+      // Invalidation now runs the re-primed (latest) queryFn.
+      client.invalidateQueries(['p']);
+      await tester.pumpAndSettle();
+      expect(fn2Calls, 1, reason: 'invalidate refetches with the current fn');
+      expect(find.text('data=2'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    test('invalidateQueriesWhere invalidates only entries matching the predicate',
+        () async {
+      final client = QueryClient();
+      var post1Calls = 0;
+      var post2Calls = 0;
+      Future<int> post1() async => ++post1Calls;
+      Future<int> post2() async => ++post2Calls;
+      const stale = Duration(minutes: 5);
+
+      await client.fetchQuery<int>(key: ['post', 1], fn: post1, staleTime: stale);
+      await client.fetchQuery<int>(key: ['post', 2], fn: post2, staleTime: stale);
+      expect(post1Calls, 1);
+      expect(post2Calls, 1);
+
+      client.invalidateQueriesWhere(
+          (key) => key.length == 2 && key[0] == 'post' && key[1] == 1);
+
+      await client.fetchQuery<int>(key: ['post', 1], fn: post1, staleTime: stale);
+      await client.fetchQuery<int>(key: ['post', 2], fn: post2, staleTime: stale);
+
+      expect(post1Calls, 2, reason: 'matched entry was invalidated → refetched');
+      expect(post2Calls, 1, reason: 'unmatched entry stayed fresh');
+    });
   });
 }

@@ -14,7 +14,7 @@ cache by query key, serve instantly while revalidating in the background, and
 invalidate on mutations. Inspired by [TanStack Query](https://tanstack.com/query)
 and [SWR](https://swr.vercel.app/).
 
-> **Status:** `0.1.0` — early but usable. Core cache semantics are covered by
+> **Status:** `0.1.1` — early but usable. Core cache semantics are covered by
 > tests and it runs on every platform (mobile, desktop, **web**).
 
 ## Why swrly?
@@ -73,7 +73,7 @@ cd example && flutter run -d chrome # web (real dio calls to a public API)
 
 ```yaml
 dependencies:
-  swrly: ^0.1.0
+  swrly: ^0.1.1
 ```
 
 ## How it works
@@ -193,8 +193,9 @@ for state.
 
 ## API at a glance
 
-- **`QueryClient`** — the cache. `fetchQuery`, `invalidateQueries(prefix)`,
-  `setQueryData` / `getQueryData`, `removeQueries`, `clear`.
+- **`QueryClient`** — the cache. `fetchQuery`, `invalidateQueries(prefix)` /
+  `invalidateQueriesWhere((key) => bool)`, `setQueryData` / `getQueryData`,
+  `removeQueries`, `clear`.
 - **`QueryBuilder<T>`** — subscribes a widget to a key; rebuilds on state
   changes; auto-unsubscribes (drives GC). `enabled`, `refetchOnResume`.
 - **`MutationBuilder<T, V>`** — `mutate(vars)` with `onSuccess` / `onError` /
@@ -226,8 +227,9 @@ See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 order — the point is to erase the "hand-rolled" gaps above so the honest
 comparison keeps tilting in `swrly`'s favour:
 
-- **Ergonomics first** — `useQuery` / `useMutation` for `flutter_hooks`, a
-  predicate form of `invalidateQueries`, and a non-widget `QueryObserver`.
+- **Ergonomics first** — `useQuery` / `useMutation` for `flutter_hooks`, and a
+  non-widget `QueryObserver`. (A predicate form of `invalidateQueries` shipped in
+  0.1.1.)
 - **Robustness** — configurable **retry + backoff**, typed error surfaces, and
   request **cancellation** when the last subscriber leaves.
 - **Bigger features** — **infinite / paginated** queries, first-class

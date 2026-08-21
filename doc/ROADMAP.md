@@ -19,13 +19,24 @@
   keyed detail query, and optimistic `setQueryData`. README with comparison
   tables. Runs on web.
 
+## v0.1.1 — Correctness patch (shipped)
+
+- `hasData` no longer conflates a successful `null` with "no data".
+- `QueryState.copyWith` can clear `data`/`error`/`stackTrace`; stale errors no
+  longer leak into later loading/success states.
+- `MutationBuilder` runs `onSuccess`/`onError`/`onSettled` regardless of
+  `mounted` (only `setState` is guarded).
+- `QueryBuilder` re-captures `queryFn`/`staleTime` on same-key rebuild
+  (`primeRefetcher`) without refetching.
+- **Predicate-based `invalidateQueries`** — `invalidateQueriesWhere((key) => bool)`.
+- Documented last-writer-wins semantics for a shared key's captured `queryFn`.
+
 ## Next — Usability polish
 
 - **`useQuery` / `useMutation` hooks** for `flutter_hooks` users
 - **Structural sharing** — preserve identity of unchanged nested fields on refetch
 - **Retry policy** — configurable retry count + backoff per query
 - **Better error surface** — typed error variants, network-vs-parse distinction
-- **Predicate-based `invalidateQueries`** — `(key) => bool` instead of just prefix
 - **`QueryObserver` (imperative API)** for non-widget consumers
 
 ## v0.2 — Growth features

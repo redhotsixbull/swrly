@@ -1,3 +1,28 @@
+## 0.1.1
+
+Correctness patch — behaviour fixes found in review, all backward compatible.
+
+- **Fix:** `QueryState.hasData` is now based on a stored "has a successful value"
+  flag instead of `data != null`. A query that legitimately resolves to `null`
+  now reports `isSuccess && hasData` at the widget layer, matching the cache's
+  own freshness contract (SPEC §2/§5.1).
+- **Fix:** `QueryState.copyWith` can now **clear** `data`/`error`/`stackTrace`
+  (via a sentinel). Entering a fetch and a successful refetch clear a stale
+  error/stackTrace, so an old failure no longer leaks into a later
+  loading/success state.
+- **Fix:** `MutationBuilder` now runs `onSuccess`/`onError`/`onSettled`
+  **regardless of `mounted`** — a widget that disposes mid-flight no longer
+  silently skips a cache invalidation done in `onSuccess`. Only `setState` is
+  guarded.
+- **Fix:** `QueryBuilder` re-captures the current `queryFn`/`staleTime` on a
+  same-key rebuild (new `QueryClient.primeRefetcher`), so a later
+  `invalidateQueries` refetch uses the current closure rather than a stale one.
+  It still does **not** refetch on a plain `queryFn` identity change.
+- **New:** `QueryClient.invalidateQueriesWhere((key) => bool)` — predicate form
+  of `invalidateQueries` for sets a prefix can't express.
+- **Docs:** documented the last-writer-wins semantics for an entry's captured
+  `queryFn` when subscribers share a key (SPEC §6). Added 6 tests.
+
 ## 0.1.0
 
 - **Example:** rebuilt around a real **dio** client hitting a public API, with a

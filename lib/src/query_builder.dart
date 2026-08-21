@@ -67,9 +67,20 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
       _client = widget.client ?? QueryClient.instance;
       _subscribe();
       if (widget.enabled) _kickOffFetch();
-    } else if (widget.enabled && !oldWidget.enabled) {
-      // enabled flipped false → true: kick off the fetch initState skipped.
-      _kickOffFetch();
+    } else {
+      // Same key/client: re-capture the current queryFn/staleTime so a later
+      // invalidateQueries refetch runs *this* build's closure, not a stale one.
+      // We do NOT refetch on a plain queryFn identity change — inline closures
+      // change every build (see SPEC §9).
+      _client.primeRefetcher<T>(
+        key: widget.queryKey,
+        fn: widget.queryFn,
+        staleTime: widget.staleTime,
+      );
+      if (widget.enabled && !oldWidget.enabled) {
+        // enabled flipped false → true: kick off the fetch initState skipped.
+        _kickOffFetch();
+      }
     }
   }
 

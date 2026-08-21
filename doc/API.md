@@ -24,7 +24,9 @@ QueryClient({
 - `Future<T> fetchQuery<T>({key, fn, staleTime})` — imperative fetch. Uses cache if fresh, dedups in-flight requests, emits state updates through the stream.
 - `Stream<QueryState<T>> observe<T>(key)` — broadcast stream of state changes.
 - `QueryState<T> stateOf<T>(key)` — synchronous read of current state.
-- `void invalidateQueries(prefix, {bool refetch = true})` — mark all keys starting with `prefix` stale. With `refetch: true` (default), entries that currently have subscribers are refetched immediately using their last `queryFn`; others refetch on next observe.
+- `void invalidateQueries(prefix, {bool refetch = true})` — mark all keys starting with `prefix` stale. With `refetch: true` (default), entries that currently have subscribers are refetched immediately using their last captured `queryFn` (last-writer-wins for a shared key); others refetch on next observe.
+- `void invalidateQueriesWhere(bool Function(QueryKey) test, {bool refetch = true})` — predicate form of `invalidateQueries` for sets a prefix can't express (e.g. every `['post', id]`, or a match on a map field in the key).
+- `void primeRefetcher<T>({key, fn, staleTime})` — re-capture the `queryFn`/`staleTime` used by a future invalidation refetch **without** fetching. `QueryBuilder` calls this on a same-key rebuild; you rarely need it directly.
 - `void setQueryData<T>(key, data)` — write a value directly (skips `queryFn`). Useful for optimistic updates.
 - `T? getQueryData<T>(key)` — read the cached value.
 - `void removeQueries(prefix)` — remove entries whose keys start with `prefix`.
@@ -49,6 +51,7 @@ matches every user-scoped query.
 class QueryState<T> {
   final QueryStatus status;    // idle | loading | success | error
   final T? data;
+  final bool hasData;          // holds a value from a successful fetch (even null)
   final Object? error;
   final StackTrace? stackTrace;
   final DateTime? updatedAt;
@@ -58,13 +61,16 @@ class QueryState<T> {
   bool get isLoading;
   bool get isSuccess;
   bool get isError;
-  bool get hasData;
 }
 ```
 
 `isFetching` is distinct from `isLoading`: a query that has `data` from a
 previous fetch and is now refetching in the background is
 `isSuccess && isFetching`.
+
+`hasData` is **not** `data != null`: a query that successfully resolves to
+`null` still reports `hasData == true`. It is retained across an error
+transition, so last-good data survives (`isError && hasData` is possible).
 
 ---
 
