@@ -139,11 +139,15 @@ the test suite (`test/swrly_test.dart`) pins down.
 
 ### `MutationBuilder<T, V>`
 - `mutate(variables)` transitions `idle → loading → success | error`.
+- If `onMutate(vars)` is provided it runs **before** `mutationFn`, may be async,
+  and returns an optional **rollback** closure. On error swrly runs that
+  rollback automatically **before** `onError` (so an optimistic write is undone
+  on failure). On success the rollback is discarded (optimistic value kept).
 - Fires `onSuccess(data, vars)` / `onError(error, stack, vars)` and always
-  `onSettled(vars)`. These app-level callbacks MUST run **regardless of
-  `mounted`** — a widget that disposes mid-flight still runs them (e.g. a cache
-  invalidation in `onSuccess` must not be silently skipped). Only `setState` is
-  guarded by `mounted`.
+  `onSettled(vars)`. These app-level callbacks — and the automatic rollback —
+  MUST run **regardless of `mounted`** — a widget that disposes mid-flight still
+  runs them (e.g. a cache invalidation in `onSuccess`, or the rollback, must not
+  be silently skipped). Only `setState` is guarded by `mounted`.
 - Returns the result, or `null` if the mutation threw.
 
 ## Not yet (out of scope)

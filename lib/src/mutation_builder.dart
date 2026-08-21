@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import 'mutation_state.dart';
@@ -9,11 +11,18 @@ typedef MutationWidgetBuilder<T, V> = Widget Function(
   MutationState<T> state,
 );
 
+/// Runs before [MutationBuilder.mutationFn]. Apply an optimistic write here and
+/// return a **rollback** closure; swrly runs it automatically if the mutation
+/// throws (before `onError`). Return `null` for no rollback. May be async (e.g.
+/// to snapshot state or cancel in-flight queries first).
+typedef MutationOnMutate<V> = FutureOr<void Function()?> Function(V variables);
+
 class MutationBuilder<T, V> extends StatefulWidget {
   const MutationBuilder({
     super.key,
     required this.mutationFn,
     required this.builder,
+    this.onMutate,
     this.onSuccess,
     this.onError,
     this.onSettled,
@@ -21,6 +30,11 @@ class MutationBuilder<T, V> extends StatefulWidget {
 
   final MutationFn<T, V> mutationFn;
   final MutationWidgetBuilder<T, V> builder;
+
+  /// Optimistic-update hook: apply the optimistic change and return a rollback
+  /// closure that swrly runs automatically on error. See [MutationOnMutate].
+  final MutationOnMutate<V>? onMutate;
+
   final void Function(T data, V variables)? onSuccess;
   final void Function(Object error, StackTrace stackTrace, V variables)? onError;
   final void Function(V variables)? onSettled;
@@ -34,13 +48,18 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
 
   Future<T?> _mutate(V variables) async {
     // Only `setState` is guarded by `mounted`; the app-level callbacks
-    // (onSuccess/onError/onSettled) MUST run even if the widget disposes
-    // mid-flight, otherwise a cache invalidation in onSuccess would silently
-    // be skipped.
+    // (onMutate/onSuccess/onError/onSettled) and the automatic rollback MUST
+    // run even if the widget disposes mid-flight, otherwise a cache
+    // invalidation or optimistic rollback would silently be skipped.
     if (mounted) {
       setState(() => _state = MutationState<T>(status: MutationStatus.loading));
     }
+    // Apply the optimistic update (if any) and capture its rollback. If
+    // onMutate itself throws, rollback stays null and we fall through to the
+    // error path.
+    void Function()? rollback;
     try {
+      rollback = await widget.onMutate?.call(variables);
       final result = await widget.mutationFn(variables);
       if (mounted) {
         setState(() => _state = MutationState<T>(
@@ -52,6 +71,8 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
       widget.onSettled?.call(variables);
       return result;
     } catch (e, st) {
+      // Roll back the optimistic write before surfacing the error.
+      rollback?.call();
       if (mounted) {
         setState(() => _state = MutationState<T>(
               status: MutationStatus.error,

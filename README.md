@@ -216,8 +216,8 @@ See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 - **In-memory only** — no disk persistence / offline cache yet.
 - No infinite/paginated query helper, no window-focus refetch (app-resume
   refetch is supported), no devtools. (Retry/backoff landed in 0.2.0-dev.)
-- `setQueryData` optimistic writes have no built-in rollback helper — handle
-  `onError` yourself.
+- Cache is not yet persisted to disk (see above). (Optimistic writes now have a
+  built-in rollback via `MutationBuilder.onMutate` — landed in 0.2.0-dev.)
 - Cache keys must be primitives / lists / maps (structural equality); custom
   objects fall back to `toString()`.
 

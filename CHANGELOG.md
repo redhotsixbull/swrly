@@ -1,3 +1,11 @@
+## 0.2.0-dev.2
+
+- **New: optimistic updates with automatic rollback.** `MutationBuilder.onMutate`
+  runs before `mutationFn`, applies your optimistic write, and returns a rollback
+  closure; swrly runs it automatically on error (before `onError`) and keeps the
+  optimistic value on success. Backward compatible — existing
+  `onSuccess`/`onError`/`onSettled` signatures are unchanged. See SPEC §9.
+
 ## 0.2.0-dev.1
 
 First 0.2.0 feature, on the `dev` prerelease track for real-world verification.

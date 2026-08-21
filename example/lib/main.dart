@@ -415,15 +415,33 @@ class _CreatePostFormState extends State<_CreatePostForm> {
       padding: const EdgeInsets.all(12),
       child: MutationBuilder<Post, String>(
         mutationFn: Net.createPost,
+        onMutate: (title) {
+          // Optimistic insert *before* the request. Snapshot the list and
+          // return a rollback closure — swrly runs it automatically if the
+          // create fails (dio counter doesn't move for the optimistic write).
+          final prev =
+              QueryClient.instance.getQueryData<List<Post>>(const ['posts']) ??
+                  const <Post>[];
+          final optimistic = Post(id: -1, title: title, body: 'saving…');
+          QueryClient.instance
+              .setQueryData<List<Post>>(const ['posts'], [optimistic, ...prev]);
+          Net.note('＋ onMutate → optimistic "$title" prepended');
+          return () {
+            QueryClient.instance.setQueryData<List<Post>>(const ['posts'], prev);
+            Net.note('↩ rollback → optimistic post removed (create failed)');
+          };
+        },
         onSuccess: (post, _) {
-          // Optimistic write: prepend to the cached list with setQueryData —
-          // it shows instantly, no refetch (dio counter doesn't move).
+          // Reconcile: swap the optimistic placeholder (id -1) for the server
+          // post, still with no refetch.
           final current =
               QueryClient.instance.getQueryData<List<Post>>(const ['posts']) ??
                   const <Post>[];
-          QueryClient.instance
-              .setQueryData<List<Post>>(const ['posts'], [post, ...current]);
-          Net.note('＋ setQueryData → #${post.id} prepended (optimistic)');
+          QueryClient.instance.setQueryData<List<Post>>(
+            const ['posts'],
+            [post, ...current.where((p) => p.id != -1)],
+          );
+          Net.note('✓ create → reconciled with server #${post.id}');
         },
         builder: (context, mutate, state) => Row(
           children: [

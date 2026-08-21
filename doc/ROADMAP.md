@@ -35,7 +35,8 @@
 
 - ✅ **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
   (`defaultRetry`/`defaultRetryDelay`). Exponential 1s→30s default. *(0.2.0-dev.1)*
-- ☐ Optimistic-update helpers — `onMutate` + rollback context
+- ✅ **Optimistic-update helpers** — `onMutate` returns a rollback closure, run
+  automatically on error *(0.2.0-dev.2)*
 - ☐ `useQueries`-style parallel combinator
 - ☐ Query cancellation when subscribers all leave
 - ☐ Infinite / paginated queries

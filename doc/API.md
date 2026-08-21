@@ -116,6 +116,7 @@ MutationBuilder<T, V>({
   Key? key,
   required Future<T> Function(V variables) mutationFn,
   required Widget Function(BuildContext, Future<T?> Function(V), MutationState<T>) builder,
+  FutureOr<void Function()?> Function(V variables)? onMutate,
   void Function(T data, V variables)? onSuccess,
   void Function(Object error, StackTrace stackTrace, V variables)? onError,
   void Function(V variables)? onSettled,
@@ -124,6 +125,22 @@ MutationBuilder<T, V>({
 
 The builder receives a `mutate(variables)` function. It returns `Future<T?>`
 — `null` if the mutation threw (the error is in `state.error`).
+
+`onMutate` runs before `mutationFn` (optimistic update). Return a rollback
+closure and swrly runs it automatically if the mutation fails, **before**
+`onError`; on success the optimistic value is kept:
+
+```dart
+MutationBuilder<Post, String>(
+  mutationFn: createPost,
+  onMutate: (title) {
+    final prev = client.getQueryData<List<Post>>(['posts']);
+    client.setQueryData<List<Post>>(['posts'], [draft(title), ...?prev]);
+    return () => client.setQueryData<List<Post>>(['posts'], prev ?? []);
+  },
+  onSettled: (_) => client.invalidateQueries(['posts']),
+)
+```
 
 ---
 

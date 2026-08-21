@@ -777,4 +777,80 @@ void main() {
           reason: 'the optimistic value survives, no error clobbers it');
     });
   });
+
+  group('optimistic + rollback (0.2.0)', () {
+    testWidgets('onMutate optimistic write is rolled back on error',
+        (tester) async {
+      final client = QueryClient();
+      client.setQueryData<int>(['count'], 10);
+      late Future<int?> Function(int) trigger;
+      Object? capturedError;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (delta) async {
+              await Future<void>.delayed(const Duration(milliseconds: 5));
+              throw StateError('server rejected');
+            },
+            onMutate: (delta) {
+              final prev = client.getQueryData<int>(['count']);
+              client.setQueryData<int>(['count'], (prev ?? 0) + delta);
+              return () => client.setQueryData<int>(['count'], prev as int);
+            },
+            onError: (e, _, __) => capturedError = e,
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('x');
+            },
+          ),
+        ),
+      );
+
+      expect(client.getQueryData<int>(['count']), 10);
+      final future = trigger(5);
+      await tester.pump();
+      expect(client.getQueryData<int>(['count']), 15,
+          reason: 'optimistic update applied before the mutationFn resolves');
+
+      await tester.pumpAndSettle();
+      await future;
+      expect(client.getQueryData<int>(['count']), 10,
+          reason: 'rollback restores the previous value on error');
+      expect(capturedError, isA<StateError>());
+      client.clear();
+    });
+
+    testWidgets('onMutate optimistic write is kept on success (no rollback)',
+        (tester) async {
+      final client = QueryClient();
+      client.setQueryData<int>(['count'], 10);
+      late Future<int?> Function(int) trigger;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (delta) async => delta,
+            onMutate: (delta) {
+              final prev = client.getQueryData<int>(['count']);
+              client.setQueryData<int>(['count'], (prev ?? 0) + delta);
+              return () => client.setQueryData<int>(['count'], prev as int);
+            },
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('x');
+            },
+          ),
+        ),
+      );
+
+      await trigger(5);
+      await tester.pumpAndSettle();
+      expect(client.getQueryData<int>(['count']), 15,
+          reason: 'a successful mutation keeps the optimistic value');
+      client.clear();
+    });
+  });
 }
