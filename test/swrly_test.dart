@@ -853,4 +853,105 @@ void main() {
       client.clear();
     });
   });
+
+  group('keepPreviousData / placeholderData (0.2.0)', () {
+    testWidgets('keepPreviousData shows the previous key while the new loads',
+        (tester) async {
+      final client = QueryClient();
+      final gateB = Completer<String>();
+      Widget build(QueryKey key, Future<String> Function() fn) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<String>(
+              client: client,
+              queryKey: key,
+              queryFn: fn,
+              keepPreviousData: true,
+              staleTime: const Duration(minutes: 5),
+              builder: (context, state, refetch) =>
+                  Text('${state.data}|${state.isPlaceholderData}'),
+            ),
+          );
+
+      await tester.pumpWidget(build(const ['k', 'a'], () async => 'A'));
+      await tester.pumpAndSettle();
+      expect(find.text('A|false'), findsOneWidget);
+
+      // Switch to a slow key B: the previous data stays, flagged placeholder.
+      await tester.pumpWidget(build(const ['k', 'b'], () => gateB.future));
+      await tester.pump();
+      expect(find.text('A|true'), findsOneWidget,
+          reason: 'previous key data shown as placeholder while B loads');
+
+      gateB.complete('B');
+      await tester.pumpAndSettle();
+      expect(find.text('B|false'), findsOneWidget,
+          reason: 'real data replaces the placeholder');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('without keepPreviousData, a key change drops the data',
+        (tester) async {
+      final client = QueryClient();
+      final gateB = Completer<String>();
+      Widget build(QueryKey key, Future<String> Function() fn) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<String>(
+              client: client,
+              queryKey: key,
+              queryFn: fn,
+              staleTime: const Duration(minutes: 5),
+              builder: (context, state, refetch) =>
+                  Text('${state.data}|${state.isPlaceholderData}'),
+            ),
+          );
+
+      await tester.pumpWidget(build(const ['k', 'a'], () async => 'A'));
+      await tester.pumpAndSettle();
+      expect(find.text('A|false'), findsOneWidget);
+
+      await tester.pumpWidget(build(const ['k', 'b'], () => gateB.future));
+      await tester.pump();
+      expect(find.text('null|false'), findsOneWidget,
+          reason: 'no previous data retained without keepPreviousData');
+
+      gateB.complete('B');
+      await tester.pumpAndSettle();
+      expect(find.text('B|false'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('placeholderData is shown until real data arrives',
+        (tester) async {
+      final client = QueryClient();
+      final gate = Completer<String>();
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<String>(
+            client: client,
+            queryKey: const ['p'],
+            queryFn: () => gate.future,
+            placeholderData: 'placeholder',
+            builder: (context, state, refetch) =>
+                Text('${state.data}|${state.isPlaceholderData}'),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      expect(find.text('placeholder|true'), findsOneWidget);
+
+      gate.complete('real');
+      await tester.pumpAndSettle();
+      expect(find.text('real|false'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+  });
 }

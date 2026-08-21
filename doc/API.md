@@ -62,6 +62,7 @@ class QueryState<T> {
   final StackTrace? stackTrace;
   final DateTime? updatedAt;
   final bool isFetching;       // true during background refetch even when data is present
+  final bool isPlaceholderData; // data is a keepPreviousData / placeholderData stand-in
 
   bool get isIdle;
   bool get isLoading;
@@ -94,6 +95,8 @@ QueryBuilder<T>({
   bool refetchOnResume = true,
   int? retry,                     // falls back to client.defaultRetry
   RetryDelay? retryDelay,         // falls back to client.defaultRetryDelay
+  bool keepPreviousData = false,  // keep previous key's data on key change
+  T? placeholderData,             // static stand-in until real data arrives
 })
 ```
 

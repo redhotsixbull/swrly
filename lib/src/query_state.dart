@@ -17,6 +17,7 @@ class QueryState<T> {
     this.stackTrace,
     this.updatedAt,
     this.isFetching = false,
+    this.isPlaceholderData = false,
   });
 
   const QueryState.idle()
@@ -26,7 +27,8 @@ class QueryState<T> {
         error = null,
         stackTrace = null,
         updatedAt = null,
-        isFetching = false;
+        isFetching = false,
+        isPlaceholderData = false;
 
   final QueryStatus status;
   final T? data;
@@ -42,6 +44,13 @@ class QueryState<T> {
   final DateTime? updatedAt;
   final bool isFetching;
 
+  /// Whether [data] is *placeholder* data — the previous key's value (with
+  /// `keepPreviousData`) or a static `placeholderData` — shown while the real
+  /// value for the current key is still loading. It is **not** cached and does
+  /// not affect freshness; it exists only so the UI can avoid a loading flash
+  /// (and optionally dim/label the stand-in). Real data has this `false`.
+  final bool isPlaceholderData;
+
   bool get isIdle => status == QueryStatus.idle;
   bool get isLoading => status == QueryStatus.loading;
   bool get isSuccess => status == QueryStatus.success;
@@ -55,6 +64,7 @@ class QueryState<T> {
     Object? stackTrace = _unset,
     DateTime? updatedAt,
     bool? isFetching,
+    bool? isPlaceholderData,
   }) {
     return QueryState<T>(
       status: status ?? this.status,
@@ -66,6 +76,7 @@ class QueryState<T> {
           : stackTrace as StackTrace?,
       updatedAt: updatedAt ?? this.updatedAt,
       isFetching: isFetching ?? this.isFetching,
+      isPlaceholderData: isPlaceholderData ?? this.isPlaceholderData,
     );
   }
 }

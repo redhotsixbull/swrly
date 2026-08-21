@@ -24,6 +24,8 @@ class QueryBuilder<T> extends StatefulWidget {
     this.refetchOnResume = true,
     this.retry,
     this.retryDelay,
+    this.keepPreviousData = false,
+    this.placeholderData,
   });
 
   final QueryKey queryKey;
@@ -42,6 +44,15 @@ class QueryBuilder<T> extends StatefulWidget {
   /// when null.
   final RetryDelay? retryDelay;
 
+  /// When true, a **key change** keeps rendering the previous key's data (as
+  /// `isPlaceholderData`) until the new key resolves, instead of flashing to a
+  /// loading state. See SPEC §9.
+  final bool keepPreviousData;
+
+  /// A static stand-in shown (as `isPlaceholderData`) while the current key has
+  /// no real data yet. Not cached; does not affect freshness.
+  final T? placeholderData;
+
   @override
   State<QueryBuilder<T>> createState() => _QueryBuilderState<T>();
 }
@@ -51,6 +62,12 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   late QueryClient _client;
   StreamSubscription<QueryState<T>>? _sub;
   QueryState<T> _state = const QueryState<Never>.idle() as QueryState<T>;
+
+  /// The last *real* (non-placeholder) data seen, kept across a key change so
+  /// `keepPreviousData` can show it while the new key loads. Cleared only when a
+  /// new real value replaces it.
+  T? _keptData;
+  bool _hasKeptData = false;
 
   @override
   void initState() {
@@ -102,9 +119,52 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
     _client.onSubscribe<T>(widget.queryKey);
     _sub = _client.observe<T>(widget.queryKey).listen((next) {
       if (!mounted) return;
-      setState(() => _state = next);
+      setState(() {
+        _state = next;
+        _rememberRealData(next);
+      });
     });
     _state = _client.stateOf<T>(widget.queryKey);
+    _rememberRealData(_state);
+  }
+
+  void _rememberRealData(QueryState<T> s) {
+    if (s.hasData) {
+      _keptData = s.data;
+      _hasKeptData = true;
+    }
+  }
+
+  /// The state handed to [builder]: real data when present, otherwise the
+  /// previous key's data (`keepPreviousData`) or [placeholderData], flagged as
+  /// `isPlaceholderData`.
+  QueryState<T> _viewState() {
+    if (_state.hasData) return _state;
+    // Build a fresh QueryState<T> rather than copyWith: an entry's initial state
+    // is a QueryState<Never> (cast to <T>), so copyWith's `data as T?` would
+    // cast a real value to Never? and throw. Here T is the widget's real type.
+    if (widget.keepPreviousData && _hasKeptData) {
+      return QueryState<T>(
+        status: _state.status,
+        data: _keptData,
+        hasData: true,
+        error: _state.error,
+        stackTrace: _state.stackTrace,
+        updatedAt: _state.updatedAt,
+        isFetching: true,
+        isPlaceholderData: true,
+      );
+    }
+    if (widget.placeholderData != null) {
+      return QueryState<T>(
+        status: _state.status,
+        data: widget.placeholderData,
+        hasData: true,
+        isFetching: true,
+        isPlaceholderData: true,
+      );
+    }
+    return _state;
   }
 
   void _syncStateFromClient() {
@@ -161,5 +221,6 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(context, _state, _refetch);
+  Widget build(BuildContext context) =>
+      widget.builder(context, _viewState(), _refetch);
 }

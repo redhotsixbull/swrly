@@ -1,3 +1,12 @@
+## 0.2.0-dev.3
+
+- **New: `keepPreviousData` / `placeholderData`.** `QueryBuilder.keepPreviousData`
+  keeps rendering the previous key's data (flagged `state.isPlaceholderData`)
+  while a new key loads, instead of flashing to a spinner — ideal for search /
+  pagination. `QueryBuilder.placeholderData` shows a static stand-in until the
+  first real value arrives. Neither is cached or affects freshness. New
+  `QueryState.isPlaceholderData` flag. See SPEC §9.
+
 ## 0.2.0-dev.2
 
 - **New: optimistic updates with automatic rollback.** `MutationBuilder.onMutate`

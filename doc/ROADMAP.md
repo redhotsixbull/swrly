@@ -37,9 +37,12 @@
   (`defaultRetry`/`defaultRetryDelay`). Exponential 1s→30s default. *(0.2.0-dev.1)*
 - ✅ **Optimistic-update helpers** — `onMutate` returns a rollback closure, run
   automatically on error *(0.2.0-dev.2)*
-- ☐ `useQueries`-style parallel combinator
+- ✅ **`keepPreviousData` / `placeholderData`** — no loading flash on key change
+  *(0.2.0-dev.3)*
 - ☐ Query cancellation when subscribers all leave
 - ☐ Infinite / paginated queries
+- ⊘ `useQueries` — intentionally skipped (too React-flavored); if parallel is
+  needed, prefer a type-safe record combinator (`QueryGroup2Builder`)
 
 ## Next — Usability polish
 

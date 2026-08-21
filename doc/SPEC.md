@@ -134,6 +134,15 @@ the test suite (`test/swrly_test.dart`) pins down.
   disabled query never gets a refetcher (invalidation skips it).
 - `retry`/`retryDelay` (§8.1) apply to the initial fetch, `refetch()`, and
   invalidation-driven refetches; they fall back to the client defaults.
+- `keepPreviousData: true` — on a **key change**, the builder keeps receiving the
+  previous key's data (with `state.isPlaceholderData == true`, `isFetching ==
+  true`) until the new key produces real data, instead of dropping to a
+  no-data/loading state. Placeholder data is **not** cached and does not affect
+  freshness or `getQueryData`.
+- `placeholderData: T?` — while the current key has no real data yet, the builder
+  receives this static value (with `isPlaceholderData == true`). Superseded by
+  real data as soon as it arrives; not cached.
+- Real (cached) data always has `isPlaceholderData == false`.
 - `refetchOnResume: true` refetches on `AppLifecycleState.resumed`.
 - `setState` is guarded by `mounted`; no setState-after-dispose.
 
