@@ -1,3 +1,21 @@
+## 0.2.0
+
+Stable release of the 0.2.0 line (the `0.2.0-dev.*` notes below are the full
+history). Headline additions since `0.1.x`:
+
+- **Retry + backoff** — `retry` / `retryDelay` on `QueryBuilder` / `fetchQuery`,
+  exponential default (1s→30s).
+- **Optimistic updates with automatic rollback** — `MutationBuilder.onMutate`
+  applies an optimistic write and returns a rollback closure run on error.
+- **`keepPreviousData` / `placeholderData`** — no loading flash on key changes
+  (search / pagination); new `QueryState.isPlaceholderData`.
+- **Example:** a new **Stress test** screen — an in-app performance harness with
+  a live FPS / build / raster / jank readout, a cache-ops micro-benchmark, and
+  hundreds of live `QueryBuilder`s under continuous invalidation.
+- **Docs:** the README now has a measured **Performance** section.
+
+Backward compatible with `0.1.x`.
+
 ## 0.2.0-dev.4
 
 - **Example:** rebuilt as a verification harness for all 0.2.0 features —
