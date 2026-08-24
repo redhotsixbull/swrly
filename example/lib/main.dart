@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:swrly/swrly.dart';
 
+import 'stress_test_screen.dart';
+
 void main() => runApp(const ExampleApp());
 
 class ExampleApp extends StatelessWidget {
@@ -128,6 +130,13 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('swrly + dio'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.speed_outlined),
+            tooltip: 'Stress test',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const StressTestScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.delete_sweep),
             tooltip: 'Clear cache',
