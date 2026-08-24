@@ -248,6 +248,26 @@ See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 - **A single fetch you never re-read or cache** → `FutureBuilder` is fine.
 - **Offline-first persistence** → not yet (in-memory only; see limitations).
 
+## Performance
+
+Measured on an Apple M3 Pro (`flutter test`, JIT — an AOT release build is
+faster):
+
+| Cache op | throughput | notes |
+|---|---|---|
+| `getQueryData` | ~1.8–3.2 M/sec | hash-map lookup |
+| `setQueryData` | ~160–240 K/sec | allocates the entry + stream + GC timer |
+| `invalidateQueries` fan-out | ~0.3 µs / entry | linear; sub-ms for hundreds–thousands of keys |
+
+Reads are effectively free; writes do real per-entry work. Invalidation scales
+linearly with the number of cached entries (≈9 ms across 10 K, ≈32 ms across
+100 K) — well beyond what a normal app holds.
+
+Run it yourself: the example app has a **Stress test** screen (speed icon in the
+AppBar) with a live FPS / build / raster / jank readout, a cache-ops
+micro-benchmark, and hundreds of live `QueryBuilder`s under continuous
+invalidation.
+
 ## Known limitations (0.1.x)
 
 - **In-memory only** — no disk persistence / offline cache yet.
