@@ -4,6 +4,13 @@ import 'package:flutter/widgets.dart';
 import 'package:swrly/swrly.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+class _Custom {
+  _Custom(this.n);
+  final int n;
+  @override
+  String toString() => 'Custom($n)';
+}
+
 void main() {
   group('QueryKeyHash', () {
     test('equal keys hash equal, order-independent maps', () {
@@ -368,6 +375,676 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('failed'), findsOneWidget);
       expect(capturedError, isA<StateError>());
+    });
+
+    testWidgets('runs onSuccess/onSettled even if unmounted mid-flight',
+        (tester) async {
+      var onSuccessCalls = 0;
+      var onSettledCalls = 0;
+      late Future<int?> Function(int) trigger;
+      final gate = Completer<int>();
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (v) => gate.future,
+            onSuccess: (_, __) => onSuccessCalls += 1,
+            onSettled: (_) => onSettledCalls += 1,
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('idle');
+            },
+          ),
+        ),
+      );
+
+      final future = trigger(1);
+      await tester.pump(); // loading setState while still mounted
+      await tester.pumpWidget(const SizedBox()); // unmount mid-flight
+      gate.complete(42); // now let the mutation resolve
+      await future;
+
+      expect(onSuccessCalls, 1,
+          reason: 'onSuccess must fire even though the widget disposed');
+      expect(onSettledCalls, 1,
+          reason: 'onSettled must always fire');
+    });
+  });
+
+  group('0.1.1 correctness fixes', () {
+    testWidgets('QueryBuilder<int?> with a null value reports hasData',
+        (tester) async {
+      final client = QueryClient();
+      late QueryState<int?> observed;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<int?>(
+            client: client,
+            queryKey: const ['maybe'],
+            queryFn: () async => null,
+            builder: (context, state, refetch) {
+              observed = state;
+              return Text('has=${state.hasData}');
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(observed.isSuccess, isTrue);
+      expect(observed.hasData, isTrue,
+          reason: 'a successful null value still has data (SPEC §2)');
+      expect(observed.data, isNull);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    test('a successful refetch after an error clears error/stackTrace',
+        () async {
+      final client = QueryClient();
+      var calls = 0;
+      Future<int> fn() async {
+        calls += 1;
+        if (calls == 1) throw StateError('boom');
+        return 7;
+      }
+
+      await expectLater(
+        client.fetchQuery<int>(key: ['q'], fn: fn, staleTime: Duration.zero),
+        throwsA(isA<StateError>()),
+      );
+      expect(client.stateOf<int>(['q']).isError, isTrue);
+      expect(client.stateOf<int>(['q']).error, isA<StateError>());
+
+      final result =
+          await client.fetchQuery<int>(key: ['q'], fn: fn, staleTime: Duration.zero);
+      expect(result, 7);
+      final state = client.stateOf<int>(['q']);
+      expect(state.isSuccess, isTrue);
+      expect(state.error, isNull, reason: 'stale error must be cleared');
+      expect(state.stackTrace, isNull, reason: 'stale stackTrace must be cleared');
+    });
+
+    test('invalidation refetch uses the most recently captured queryFn',
+        () async {
+      final client = QueryClient();
+      client.onSubscribe<int>(['shared']);
+
+      await client.fetchQuery<int>(
+          key: ['shared'], fn: () async => 1, staleTime: const Duration(minutes: 5));
+      // Second subscriber captures a different fn on the same key while data is
+      // still fresh (no refetch happens here, but the refetcher is updated).
+      await client.fetchQuery<int>(
+          key: ['shared'], fn: () async => 2, staleTime: const Duration(minutes: 5));
+      expect(client.getQueryData<int>(['shared']), 1);
+
+      client.invalidateQueries(['shared']);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(client.getQueryData<int>(['shared']), 2,
+          reason: 'last-writer-wins: invalidation runs the latest queryFn');
+      client.onUnsubscribe<int>(['shared']);
+    });
+
+    testWidgets(
+        'rebuild with a new queryFn re-primes invalidation without refetching',
+        (tester) async {
+      final client = QueryClient();
+      var fn1Calls = 0;
+      var fn2Calls = 0;
+      Widget build(int which) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<int>(
+              client: client,
+              queryKey: const ['p'],
+              staleTime: const Duration(minutes: 5),
+              queryFn: which == 1
+                  ? () async {
+                      fn1Calls += 1;
+                      return 1;
+                    }
+                  : () async {
+                      fn2Calls += 1;
+                      return 2;
+                    },
+              builder: (context, state, refetch) => Text('data=${state.data}'),
+            ),
+          );
+
+      await tester.pumpWidget(build(1));
+      await tester.pumpAndSettle();
+      expect(fn1Calls, 1);
+      expect(find.text('data=1'), findsOneWidget);
+
+      // Rebuild with a different fn on the same fresh key: must NOT refetch.
+      await tester.pumpWidget(build(2));
+      await tester.pumpAndSettle();
+      expect(fn2Calls, 0, reason: 'a plain rebuild must not refetch');
+      expect(find.text('data=1'), findsOneWidget);
+
+      // Invalidation now runs the re-primed (latest) queryFn.
+      client.invalidateQueries(['p']);
+      await tester.pumpAndSettle();
+      expect(fn2Calls, 1, reason: 'invalidate refetches with the current fn');
+      expect(find.text('data=2'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    test('invalidateQueriesWhere invalidates only entries matching the predicate',
+        () async {
+      final client = QueryClient();
+      var post1Calls = 0;
+      var post2Calls = 0;
+      Future<int> post1() async => ++post1Calls;
+      Future<int> post2() async => ++post2Calls;
+      const stale = Duration(minutes: 5);
+
+      await client.fetchQuery<int>(key: ['post', 1], fn: post1, staleTime: stale);
+      await client.fetchQuery<int>(key: ['post', 2], fn: post2, staleTime: stale);
+      expect(post1Calls, 1);
+      expect(post2Calls, 1);
+
+      client.invalidateQueriesWhere(
+          (key) => key.length == 2 && key[0] == 'post' && key[1] == 1);
+
+      await client.fetchQuery<int>(key: ['post', 1], fn: post1, staleTime: stale);
+      await client.fetchQuery<int>(key: ['post', 2], fn: post2, staleTime: stale);
+
+      expect(post1Calls, 2, reason: 'matched entry was invalidated → refetched');
+      expect(post2Calls, 1, reason: 'unmatched entry stayed fresh');
+    });
+
+    testWidgets(
+        'a disabled query is never fetched by invalidateQueries, even after a rebuild',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      Widget build(String label) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<int>(
+              client: client,
+              enabled: false,
+              queryKey: const ['d'],
+              queryFn: () async {
+                calls += 1;
+                return 1;
+              },
+              builder: (context, state, refetch) => Text('label=$label'),
+            ),
+          );
+
+      await tester.pumpWidget(build('a'));
+      await tester.pump();
+      expect(calls, 0, reason: 'disabled query does not fetch on mount');
+
+      // A parent-driven rebuild while still disabled must not install a
+      // refetcher (regression guard for SPEC §9).
+      await tester.pumpWidget(build('b'));
+      await tester.pump();
+
+      client.invalidateQueries(['d']);
+      await tester.pumpAndSettle();
+      expect(calls, 0,
+          reason: 'invalidateQueries must not fetch a disabled query');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('MutationBuilder runs onError/onSettled even if unmounted',
+        (tester) async {
+      var onErrorCalls = 0;
+      var onSettledCalls = 0;
+      late Future<int?> Function(int) trigger;
+      final gate = Completer<int>();
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (v) => gate.future,
+            onError: (_, __, ___) => onErrorCalls += 1,
+            onSettled: (_) => onSettledCalls += 1,
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('idle');
+            },
+          ),
+        ),
+      );
+
+      final future = trigger(1);
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox()); // unmount mid-flight
+      gate.completeError(StateError('boom')); // resolve as error
+      await future;
+
+      expect(onErrorCalls, 1,
+          reason: 'onError must fire on the error path even when disposed');
+      expect(onSettledCalls, 1, reason: 'onSettled must always fire');
+    });
+
+    test('hasData is retained across an error transition', () async {
+      final client = QueryClient();
+      client.setQueryData<int>(['h'], 5); // success → hasData true
+      await expectLater(
+        client.fetchQuery<int>(
+            key: ['h'],
+            fn: () async => throw StateError('x'),
+            staleTime: Duration.zero),
+        throwsA(isA<StateError>()),
+      );
+      final s = client.stateOf<int>(['h']);
+      expect(s.isError, isTrue);
+      expect(s.hasData, isTrue, reason: 'last-good data survives an error');
+      expect(s.data, 5);
+    });
+
+    test('copyWith clears data/error/stackTrace when passed null', () {
+      const start = QueryState<int>(
+        status: QueryStatus.error,
+        data: 7,
+        hasData: true,
+        error: 'boom',
+      );
+      final cleared = start.copyWith(
+        status: QueryStatus.success,
+        data: null,
+        hasData: false,
+        error: null,
+        stackTrace: null,
+      );
+      expect(cleared.data, isNull, reason: 'explicit null clears data');
+      expect(cleared.error, isNull, reason: 'explicit null clears error');
+      expect(cleared.stackTrace, isNull);
+      expect(cleared.hasData, isFalse);
+
+      // Omitting a field must preserve it (sentinel, not null).
+      final kept = start.copyWith(isFetching: true);
+      expect(kept.data, 7, reason: 'omitted data is preserved');
+      expect(kept.error, 'boom', reason: 'omitted error is preserved');
+    });
+  });
+
+  group('retry + backoff (0.2.0)', () {
+    test('retries N times then surfaces the error', () async {
+      final client = QueryClient();
+      var calls = 0;
+      await expectLater(
+        client.fetchQuery<int>(
+          key: ['r'],
+          fn: () async {
+            calls += 1;
+            throw StateError('boom');
+          },
+          retry: 2,
+          retryDelay: (_) => Duration.zero,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(calls, 3, reason: '1 initial attempt + 2 retries');
+      expect(client.stateOf<int>(['r']).isError, isTrue);
+    });
+
+    test('succeeds on a later attempt without surfacing an error', () async {
+      final client = QueryClient();
+      var calls = 0;
+      final result = await client.fetchQuery<int>(
+        key: ['r'],
+        fn: () async {
+          calls += 1;
+          if (calls < 3) throw StateError('transient');
+          return 42;
+        },
+        retry: 5,
+        retryDelay: (_) => Duration.zero,
+      );
+      expect(result, 42);
+      expect(calls, 3);
+      final s = client.stateOf<int>(['r']);
+      expect(s.isSuccess, isTrue);
+      expect(s.error, isNull, reason: 'a recovered retry surfaces no error');
+      expect(s.data, 42);
+    });
+
+    test('retryDelay receives 1-based attempt numbers', () async {
+      final client = QueryClient();
+      final attempts = <int>[];
+      await expectLater(
+        client.fetchQuery<int>(
+          key: ['r'],
+          fn: () async => throw StateError('x'),
+          retry: 3,
+          retryDelay: (n) {
+            attempts.add(n);
+            return Duration.zero;
+          },
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(attempts, [1, 2, 3]);
+    });
+
+    test('defaultRetryDelayFn is exponential, capped at 30s', () {
+      expect(defaultRetryDelayFn(1), const Duration(seconds: 1));
+      expect(defaultRetryDelayFn(2), const Duration(seconds: 2));
+      expect(defaultRetryDelayFn(3), const Duration(seconds: 4));
+      expect(defaultRetryDelayFn(20), const Duration(seconds: 30));
+    });
+
+    test('client defaultRetry applies when per-query retry is omitted',
+        () async {
+      final client = QueryClient(
+        defaultRetry: 2,
+        defaultRetryDelay: (_) => Duration.zero,
+      );
+      var calls = 0;
+      await expectLater(
+        client.fetchQuery<int>(
+          key: ['r'],
+          fn: () async {
+            calls += 1;
+            throw StateError('x');
+          },
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(calls, 3, reason: 'client default of 2 retries → 3 attempts');
+    });
+
+    test('a supersede during the retry backoff stops further attempts',
+        () async {
+      final client = QueryClient();
+      var calls = 0;
+      final f = client.fetchQuery<int>(
+        key: ['r'],
+        fn: () async {
+          calls += 1;
+          throw StateError('x');
+        },
+        retry: 5,
+        retryDelay: (_) => const Duration(milliseconds: 30),
+      );
+      // Let the first attempt fail and enter the 30ms backoff…
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      // …then supersede with an optimistic write.
+      client.setQueryData<int>(['r'], 99);
+      await f.catchError((_) => 0); // superseded fetch rethrows its last error
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(calls, 1, reason: 'no further attempts after supersede');
+      expect(client.stateOf<int>(['r']).isSuccess, isTrue);
+      expect(client.getQueryData<int>(['r']), 99,
+          reason: 'the optimistic value survives, no error clobbers it');
+    });
+  });
+
+  group('optimistic + rollback (0.2.0)', () {
+    testWidgets('onMutate optimistic write is rolled back on error',
+        (tester) async {
+      final client = QueryClient();
+      client.setQueryData<int>(['count'], 10);
+      late Future<int?> Function(int) trigger;
+      Object? capturedError;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (delta) async {
+              await Future<void>.delayed(const Duration(milliseconds: 5));
+              throw StateError('server rejected');
+            },
+            onMutate: (delta) {
+              final prev = client.getQueryData<int>(['count']);
+              client.setQueryData<int>(['count'], (prev ?? 0) + delta);
+              return () => client.setQueryData<int>(['count'], prev as int);
+            },
+            onError: (e, _, __) => capturedError = e,
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('x');
+            },
+          ),
+        ),
+      );
+
+      expect(client.getQueryData<int>(['count']), 10);
+      final future = trigger(5);
+      await tester.pump();
+      expect(client.getQueryData<int>(['count']), 15,
+          reason: 'optimistic update applied before the mutationFn resolves');
+
+      await tester.pumpAndSettle();
+      await future;
+      expect(client.getQueryData<int>(['count']), 10,
+          reason: 'rollback restores the previous value on error');
+      expect(capturedError, isA<StateError>());
+      client.clear();
+    });
+
+    testWidgets('onMutate optimistic write is kept on success (no rollback)',
+        (tester) async {
+      final client = QueryClient();
+      client.setQueryData<int>(['count'], 10);
+      late Future<int?> Function(int) trigger;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: MutationBuilder<int, int>(
+            mutationFn: (delta) async => delta,
+            onMutate: (delta) {
+              final prev = client.getQueryData<int>(['count']);
+              client.setQueryData<int>(['count'], (prev ?? 0) + delta);
+              return () => client.setQueryData<int>(['count'], prev as int);
+            },
+            builder: (context, mutate, state) {
+              trigger = mutate;
+              return const Text('x');
+            },
+          ),
+        ),
+      );
+
+      await trigger(5);
+      await tester.pumpAndSettle();
+      expect(client.getQueryData<int>(['count']), 15,
+          reason: 'a successful mutation keeps the optimistic value');
+      client.clear();
+    });
+  });
+
+  group('keepPreviousData / placeholderData (0.2.0)', () {
+    testWidgets('keepPreviousData shows the previous key while the new loads',
+        (tester) async {
+      final client = QueryClient();
+      final gateB = Completer<String>();
+      Widget build(QueryKey key, Future<String> Function() fn) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<String>(
+              client: client,
+              queryKey: key,
+              queryFn: fn,
+              keepPreviousData: true,
+              staleTime: const Duration(minutes: 5),
+              builder: (context, state, refetch) =>
+                  Text('${state.data}|${state.isPlaceholderData}'),
+            ),
+          );
+
+      await tester.pumpWidget(build(const ['k', 'a'], () async => 'A'));
+      await tester.pumpAndSettle();
+      expect(find.text('A|false'), findsOneWidget);
+
+      // Switch to a slow key B: the previous data stays, flagged placeholder.
+      await tester.pumpWidget(build(const ['k', 'b'], () => gateB.future));
+      await tester.pump();
+      expect(find.text('A|true'), findsOneWidget,
+          reason: 'previous key data shown as placeholder while B loads');
+
+      gateB.complete('B');
+      await tester.pumpAndSettle();
+      expect(find.text('B|false'), findsOneWidget,
+          reason: 'real data replaces the placeholder');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('without keepPreviousData, a key change drops the data',
+        (tester) async {
+      final client = QueryClient();
+      final gateB = Completer<String>();
+      Widget build(QueryKey key, Future<String> Function() fn) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<String>(
+              client: client,
+              queryKey: key,
+              queryFn: fn,
+              staleTime: const Duration(minutes: 5),
+              builder: (context, state, refetch) =>
+                  Text('${state.data}|${state.isPlaceholderData}'),
+            ),
+          );
+
+      await tester.pumpWidget(build(const ['k', 'a'], () async => 'A'));
+      await tester.pumpAndSettle();
+      expect(find.text('A|false'), findsOneWidget);
+
+      await tester.pumpWidget(build(const ['k', 'b'], () => gateB.future));
+      await tester.pump();
+      expect(find.text('null|false'), findsOneWidget,
+          reason: 'no previous data retained without keepPreviousData');
+
+      gateB.complete('B');
+      await tester.pumpAndSettle();
+      expect(find.text('B|false'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('placeholderData is shown until real data arrives',
+        (tester) async {
+      final client = QueryClient();
+      final gate = Completer<String>();
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<String>(
+            client: client,
+            queryKey: const ['p'],
+            queryFn: () => gate.future,
+            placeholderData: 'placeholder',
+            builder: (context, state, refetch) =>
+                Text('${state.data}|${state.isPlaceholderData}'),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      expect(find.text('placeholder|true'), findsOneWidget);
+
+      gate.complete('real');
+      await tester.pumpAndSettle();
+      expect(find.text('real|false'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+  });
+
+  group('QueryBuilder refetch / lifecycle', () {
+    testWidgets('the builder refetch() callback forces a fetch past staleTime',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      late Future<void> Function() doRefetch;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<int>(
+            client: client,
+            queryKey: const ['rf'],
+            staleTime: const Duration(minutes: 5),
+            queryFn: () async => ++calls,
+            builder: (c, s, refetch) {
+              doRefetch = refetch;
+              return Text('n=${s.data}');
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+
+      await doRefetch();
+      await tester.pumpAndSettle();
+      expect(calls, 2, reason: 'refetch() ignores staleTime');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('refetchOnResume refetches on AppLifecycleState.resumed',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder<int>(
+            client: client,
+            queryKey: const ['rs'],
+            staleTime: const Duration(minutes: 5),
+            queryFn: () async => ++calls,
+            builder: (c, s, refetch) => Text('n=${s.data}'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(calls, 2, reason: 'app resume forces a refetch');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+  });
+
+  group('misc coverage', () {
+    test('QueryKeyHash: custom object falls back to toString, hash/== stable',
+        () {
+      final a = QueryKeyHash.of([_Custom(1)]);
+      final b = QueryKeyHash.of([_Custom(1)]);
+      expect(a, b, reason: 'equal toString → same hash key');
+      expect(a.hashCode, b.hashCode);
+      expect(a.toString(), contains('Custom(1)'));
+      expect(QueryKeyHash.of([_Custom(1)]) == QueryKeyHash.of([_Custom(2)]),
+          isFalse);
+    });
+
+    test('idle-state getters', () {
+      const q = QueryState<int>.idle();
+      expect(q.isIdle, isTrue);
+      expect(q.isLoading, isFalse);
+      const m = MutationState<int>.idle();
+      expect(m.isIdle, isTrue);
+      expect(m.isLoading, isFalse);
+    });
+
+    test('QueryClient.instance is a lazily-created shared singleton', () {
+      expect(identical(QueryClient.instance, QueryClient.instance), isTrue);
     });
   });
 }

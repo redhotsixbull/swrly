@@ -2,53 +2,81 @@ import 'package:flutter/foundation.dart';
 
 enum QueryStatus { idle, loading, success, error }
 
+/// Sentinel distinguishing "argument omitted" from "explicitly passed null" in
+/// [QueryState.copyWith], so a success/loading transition can *clear* a stale
+/// [error]/[stackTrace] instead of silently inheriting it.
+const Object _unset = Object();
+
 @immutable
 class QueryState<T> {
   const QueryState({
     required this.status,
     this.data,
+    this.hasData = false,
     this.error,
     this.stackTrace,
     this.updatedAt,
     this.isFetching = false,
+    this.isPlaceholderData = false,
   });
 
   const QueryState.idle()
       : status = QueryStatus.idle,
         data = null,
+        hasData = false,
         error = null,
         stackTrace = null,
         updatedAt = null,
-        isFetching = false;
+        isFetching = false,
+        isPlaceholderData = false;
 
   final QueryStatus status;
   final T? data;
+
+  /// Whether [data] holds a value produced by a successful fetch. This is
+  /// distinct from `data != null`: a query that legitimately resolves to `null`
+  /// still "has data" (see SPEC §2). The flag is retained across an error
+  /// transition, so last-good data survives (`isError && hasData` is possible).
+  final bool hasData;
+
   final Object? error;
   final StackTrace? stackTrace;
   final DateTime? updatedAt;
   final bool isFetching;
 
+  /// Whether [data] is *placeholder* data — the previous key's value (with
+  /// `keepPreviousData`) or a static `placeholderData` — shown while the real
+  /// value for the current key is still loading. It is **not** cached and does
+  /// not affect freshness; it exists only so the UI can avoid a loading flash
+  /// (and optionally dim/label the stand-in). Real data has this `false`.
+  final bool isPlaceholderData;
+
   bool get isIdle => status == QueryStatus.idle;
   bool get isLoading => status == QueryStatus.loading;
   bool get isSuccess => status == QueryStatus.success;
   bool get isError => status == QueryStatus.error;
-  bool get hasData => data != null;
 
   QueryState<T> copyWith({
     QueryStatus? status,
-    T? data,
-    Object? error,
-    StackTrace? stackTrace,
+    Object? data = _unset,
+    bool? hasData,
+    Object? error = _unset,
+    Object? stackTrace = _unset,
     DateTime? updatedAt,
     bool? isFetching,
+    bool? isPlaceholderData,
   }) {
     return QueryState<T>(
       status: status ?? this.status,
-      data: data ?? this.data,
-      error: error ?? this.error,
-      stackTrace: stackTrace ?? this.stackTrace,
+      data: identical(data, _unset) ? this.data : data as T?,
+      hasData: hasData ?? this.hasData,
+      error: identical(error, _unset) ? this.error : error,
+      stackTrace: identical(stackTrace, _unset)
+          ? this.stackTrace
+          : stackTrace as StackTrace?,
       updatedAt: updatedAt ?? this.updatedAt,
       isFetching: isFetching ?? this.isFetching,
+      isPlaceholderData: isPlaceholderData ?? this.isPlaceholderData,
     );
   }
 }

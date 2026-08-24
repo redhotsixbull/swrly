@@ -14,8 +14,24 @@ cache by query key, serve instantly while revalidating in the background, and
 invalidate on mutations. Inspired by [TanStack Query](https://tanstack.com/query)
 and [SWR](https://swr.vercel.app/).
 
-> **Status:** `0.1.0` — early but usable. Core cache semantics are covered by
-> tests and it runs on every platform (mobile, desktop, **web**).
+> **Status:** stable `0.1.x`; **`0.2.0` in prerelease** (`0.2.0-dev.N`) — adds
+> retry+backoff, optimistic rollback, and `keepPreviousData`. Core cache
+> semantics are covered by tests (100% line coverage on `lib/src`) and it runs
+> on every platform (mobile, desktop, **web**).
+>
+> Trying the prerelease: `swrly: 0.2.0-dev.4` (pin exactly — prereleases aren't
+> picked by `^` constraints).
+
+### New in 0.2.0 (dev)
+
+- **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
+  (`defaultRetry`/`defaultRetryDelay`), exponential 1s→30s by default.
+- **Optimistic updates with automatic rollback** — `MutationBuilder.onMutate`
+  returns a rollback closure that runs automatically on failure.
+- **`keepPreviousData` / `placeholderData`** — no loading flash on key change
+  (search/pagination); `state.isPlaceholderData` marks the stand-in.
+
+See [`CHANGELOG.md`](CHANGELOG.md) and [`doc/ROADMAP.md`](doc/ROADMAP.md).
 
 ## Why swrly?
 
@@ -73,7 +89,8 @@ cd example && flutter run -d chrome # web (real dio calls to a public API)
 
 ```yaml
 dependencies:
-  swrly: ^0.1.0
+  swrly: ^0.1.0          # latest stable
+  # swrly: 0.2.0-dev.4   # opt into the 0.2.0 prerelease (retry, rollback, keepPreviousData)
 ```
 
 ## How it works
@@ -149,6 +166,24 @@ MutationBuilder<Post, String>(
 )
 ```
 
+**Optimistic update with automatic rollback (0.2.0)** — `onMutate` runs before
+the request and returns a rollback closure that swrly runs for you if it fails:
+
+```dart
+MutationBuilder<Post, String>(
+  mutationFn: createPost,
+  onMutate: (title) {
+    final prev = QueryClient.instance.getQueryData<List<Post>>(['posts']) ?? [];
+    QueryClient.instance.setQueryData<List<Post>>(
+        ['posts'], [Post.draft(title), ...prev]);   // show it instantly
+    return () => QueryClient.instance
+        .setQueryData<List<Post>>(['posts'], prev);   // auto-rollback on error
+  },
+  onSettled: (_) => QueryClient.instance.invalidateQueries(['posts']),
+  builder: ...,
+)
+```
+
 ## How it compares
 
 ### vs `FutureBuilder`
@@ -193,14 +228,17 @@ for state.
 
 ## API at a glance
 
-- **`QueryClient`** — the cache. `fetchQuery`, `invalidateQueries(prefix)`,
-  `setQueryData` / `getQueryData`, `removeQueries`, `clear`.
+- **`QueryClient`** — the cache. `fetchQuery`, `invalidateQueries(prefix)` /
+  `invalidateQueriesWhere((key) => bool)`, `setQueryData` / `getQueryData`,
+  `removeQueries`, `clear`.
 - **`QueryBuilder<T>`** — subscribes a widget to a key; rebuilds on state
-  changes; auto-unsubscribes (drives GC). `enabled`, `refetchOnResume`.
-- **`MutationBuilder<T, V>`** — `mutate(vars)` with `onSuccess` / `onError` /
-  `onSettled`.
-- **`QueryState<T>`** — `isLoading` / `isSuccess` / `isError`, `data`, `error`,
-  and `isFetching` (a background refetch while data is present).
+  changes; auto-unsubscribes (drives GC). `enabled`, `refetchOnResume`,
+  `retry` / `retryDelay`, `keepPreviousData` / `placeholderData`.
+- **`MutationBuilder<T, V>`** — `mutate(vars)` with `onMutate` (optimistic +
+  rollback) / `onSuccess` / `onError` / `onSettled`.
+- **`QueryState<T>`** — `isLoading` / `isSuccess` / `isError`, `data`, `hasData`,
+  `error`, `isFetching` (background refetch while data is present), and
+  `isPlaceholderData`.
 
 See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 
@@ -210,33 +248,57 @@ See [`doc/API.md`](doc/API.md) and [`doc/SPEC.md`](doc/SPEC.md).
 - **A single fetch you never re-read or cache** → `FutureBuilder` is fine.
 - **Offline-first persistence** → not yet (in-memory only; see limitations).
 
+## Performance
+
+Measured on an Apple M3 Pro (`flutter test`, JIT — an AOT release build is
+faster):
+
+| Cache op | throughput | notes |
+|---|---|---|
+| `getQueryData` | ~1.8–3.2 M/sec | hash-map lookup |
+| `setQueryData` | ~160–240 K/sec | allocates the entry + stream + GC timer |
+| `invalidateQueries` fan-out | ~0.3 µs / entry | linear; sub-ms for hundreds–thousands of keys |
+
+Reads are effectively free; writes do real per-entry work. Invalidation scales
+linearly with the number of cached entries (≈9 ms across 10 K, ≈32 ms across
+100 K) — well beyond what a normal app holds.
+
+Run it yourself: the example app has a **Stress test** screen (speed icon in the
+AppBar) with a live FPS / build / raster / jank readout, a cache-ops
+micro-benchmark, and hundreds of live `QueryBuilder`s under continuous
+invalidation.
+
 ## Known limitations (0.1.x)
 
 - **In-memory only** — no disk persistence / offline cache yet.
-- No infinite/paginated query helper, no automatic retry/backoff, no
-  window-focus refetch (app-resume refetch is supported), no devtools.
-- `setQueryData` optimistic writes have no built-in rollback helper — handle
-  `onError` yourself.
+- No infinite/paginated query helper, no window-focus refetch (app-resume
+  refetch is supported), no devtools. (Retry/backoff landed in 0.2.0-dev.)
+- Cache is not yet persisted to disk (see above). (Optimistic writes now have a
+  built-in rollback via `MutationBuilder.onMutate` — landed in 0.2.0-dev.)
 - Cache keys must be primitives / lists / maps (structural equality); custom
   objects fall back to `toString()`.
 
 ## Where this is going
 
-`swrly` is early (`0.1.0`) and will grow with real use. The plan, roughly in
-order — the point is to erase the "hand-rolled" gaps above so the honest
-comparison keeps tilting in `swrly`'s favour:
+`swrly` grows with real use — the point is to erase the "hand-rolled" gaps so the
+honest comparison keeps tilting in `swrly`'s favour.
 
-- **Ergonomics first** — `useQuery` / `useMutation` for `flutter_hooks`, a
-  predicate form of `invalidateQueries`, and a non-widget `QueryObserver`.
-- **Robustness** — configurable **retry + backoff**, typed error surfaces, and
-  request **cancellation** when the last subscriber leaves.
-- **Bigger features** — **infinite / paginated** queries, first-class
-  **optimistic updates with rollback**, and window/online refetch triggers.
+**Shipped in 0.2.0-dev:** retry + backoff · optimistic rollback (`onMutate`) ·
+`keepPreviousData` / `placeholderData` · predicate `invalidateQueries` (0.1.1).
+
+**Still ahead:**
+
+- **Robustness** — request **cancellation** when the last subscriber leaves
+  (threads an abort token into `queryFn`), typed error surfaces.
+- **Bigger features** — **infinite / paginated** queries, window/online refetch
+  triggers.
+- **Ergonomics** — non-widget `QueryObserver`, optional `flutter_hooks`
+  `useQuery` / `useMutation`. (`useQueries` is intentionally skipped as too
+  React-flavored; a type-safe record combinator is the preferred path.)
 - **Persistence** — a pluggable adapter interface (hive / shared_preferences /
   drift) for offline-first caching.
-- **Ecosystem** — a DevTools panel to inspect the cache, and **Riverpod / Bloc
-  bridges** (`AsyncValue` adapters) so it composes cleanly with what you already
-  use.
+- **Ecosystem** — a DevTools panel, and **Riverpod / Bloc** `AsyncValue`
+  bridges.
 
 Full detail and later milestones in [`doc/ROADMAP.md`](doc/ROADMAP.md).
 Feedback and issues are very welcome — the roadmap is driven by what people

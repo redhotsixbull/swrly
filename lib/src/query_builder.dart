@@ -22,6 +22,10 @@ class QueryBuilder<T> extends StatefulWidget {
     this.client,
     this.enabled = true,
     this.refetchOnResume = true,
+    this.retry,
+    this.retryDelay,
+    this.keepPreviousData = false,
+    this.placeholderData,
   });
 
   final QueryKey queryKey;
@@ -32,6 +36,23 @@ class QueryBuilder<T> extends StatefulWidget {
   final bool enabled;
   final bool refetchOnResume;
 
+  /// Number of retries (attempts after the first) when [queryFn] throws.
+  /// Defaults to the client's `defaultRetry` when null.
+  final int? retry;
+
+  /// Backoff before each retry. Defaults to the client's `defaultRetryDelay`
+  /// when null.
+  final RetryDelay? retryDelay;
+
+  /// When true, a **key change** keeps rendering the previous key's data (as
+  /// `isPlaceholderData`) until the new key resolves, instead of flashing to a
+  /// loading state. See SPEC §9.
+  final bool keepPreviousData;
+
+  /// A static stand-in shown (as `isPlaceholderData`) while the current key has
+  /// no real data yet. Not cached; does not affect freshness.
+  final T? placeholderData;
+
   @override
   State<QueryBuilder<T>> createState() => _QueryBuilderState<T>();
 }
@@ -41,6 +62,12 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   late QueryClient _client;
   StreamSubscription<QueryState<T>>? _sub;
   QueryState<T> _state = const QueryState<Never>.idle() as QueryState<T>;
+
+  /// The last *real* (non-placeholder) data seen, kept across a key change so
+  /// `keepPreviousData` can show it while the new key loads. Cleared only when a
+  /// new real value replaces it.
+  T? _keptData;
+  bool _hasKeptData = false;
 
   @override
   void initState() {
@@ -67,9 +94,24 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
       _client = widget.client ?? QueryClient.instance;
       _subscribe();
       if (widget.enabled) _kickOffFetch();
-    } else if (widget.enabled && !oldWidget.enabled) {
-      // enabled flipped false → true: kick off the fetch initState skipped.
-      _kickOffFetch();
+    } else if (widget.enabled) {
+      // Same key/client and still enabled: re-capture the current
+      // queryFn/staleTime so a later invalidateQueries refetch runs *this*
+      // build's closure, not a stale one. We do NOT refetch on a plain queryFn
+      // identity change — inline closures change every build (see SPEC §9).
+      // Priming is gated on `enabled` so a disabled query never gets a
+      // refetcher installed (invalidateQueries must skip it — SPEC §9).
+      _client.primeRefetcher<T>(
+        key: widget.queryKey,
+        fn: widget.queryFn,
+        staleTime: widget.staleTime,
+        retry: widget.retry,
+        retryDelay: widget.retryDelay,
+      );
+      if (!oldWidget.enabled) {
+        // enabled flipped false → true: kick off the fetch initState skipped.
+        _kickOffFetch();
+      }
     }
   }
 
@@ -77,9 +119,52 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
     _client.onSubscribe<T>(widget.queryKey);
     _sub = _client.observe<T>(widget.queryKey).listen((next) {
       if (!mounted) return;
-      setState(() => _state = next);
+      setState(() {
+        _state = next;
+        _rememberRealData(next);
+      });
     });
     _state = _client.stateOf<T>(widget.queryKey);
+    _rememberRealData(_state);
+  }
+
+  void _rememberRealData(QueryState<T> s) {
+    if (s.hasData) {
+      _keptData = s.data;
+      _hasKeptData = true;
+    }
+  }
+
+  /// The state handed to [builder]: real data when present, otherwise the
+  /// previous key's data (`keepPreviousData`) or [placeholderData], flagged as
+  /// `isPlaceholderData`.
+  QueryState<T> _viewState() {
+    if (_state.hasData) return _state;
+    // Build a fresh QueryState<T> rather than copyWith: an entry's initial state
+    // is a QueryState<Never> (cast to <T>), so copyWith's `data as T?` would
+    // cast a real value to Never? and throw. Here T is the widget's real type.
+    if (widget.keepPreviousData && _hasKeptData) {
+      return QueryState<T>(
+        status: _state.status,
+        data: _keptData,
+        hasData: true,
+        error: _state.error,
+        stackTrace: _state.stackTrace,
+        updatedAt: _state.updatedAt,
+        isFetching: true,
+        isPlaceholderData: true,
+      );
+    }
+    if (widget.placeholderData != null) {
+      return QueryState<T>(
+        status: _state.status,
+        data: widget.placeholderData,
+        hasData: true,
+        isFetching: true,
+        isPlaceholderData: true,
+      );
+    }
+    return _state;
   }
 
   void _syncStateFromClient() {
@@ -98,6 +183,8 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         key: widget.queryKey,
         fn: widget.queryFn,
         staleTime: widget.staleTime,
+        retry: widget.retry,
+        retryDelay: widget.retryDelay,
       );
     } catch (_) {
       // Error state already emitted via stream.
@@ -111,6 +198,8 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         key: widget.queryKey,
         fn: widget.queryFn,
         staleTime: Duration.zero,
+        retry: widget.retry,
+        retryDelay: widget.retryDelay,
       );
     } catch (_) {}
   }
@@ -132,5 +221,6 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(context, _state, _refetch);
+  Widget build(BuildContext context) =>
+      widget.builder(context, _viewState(), _refetch);
 }

@@ -19,13 +19,36 @@
   keyed detail query, and optimistic `setQueryData`. README with comparison
   tables. Runs on web.
 
+## v0.1.1 — Correctness patch (shipped)
+
+- `hasData` no longer conflates a successful `null` with "no data".
+- `QueryState.copyWith` can clear `data`/`error`/`stackTrace`; stale errors no
+  longer leak into later loading/success states.
+- `MutationBuilder` runs `onSuccess`/`onError`/`onSettled` regardless of
+  `mounted` (only `setState` is guarded).
+- `QueryBuilder` re-captures `queryFn`/`staleTime` on same-key rebuild
+  (`primeRefetcher`) without refetching.
+- **Predicate-based `invalidateQueries`** — `invalidateQueriesWhere((key) => bool)`.
+- Documented last-writer-wins semantics for a shared key's captured `queryFn`.
+
+## v0.2.0 — Growth features (in progress, `dev` track)
+
+- ✅ **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
+  (`defaultRetry`/`defaultRetryDelay`). Exponential 1s→30s default. *(0.2.0-dev.1)*
+- ✅ **Optimistic-update helpers** — `onMutate` returns a rollback closure, run
+  automatically on error *(0.2.0-dev.2)*
+- ✅ **`keepPreviousData` / `placeholderData`** — no loading flash on key change
+  *(0.2.0-dev.3)*
+- ☐ Query cancellation when subscribers all leave
+- ☐ Infinite / paginated queries
+- ⊘ `useQueries` — intentionally skipped (too React-flavored); if parallel is
+  needed, prefer a type-safe record combinator (`QueryGroup2Builder`)
+
 ## Next — Usability polish
 
 - **`useQuery` / `useMutation` hooks** for `flutter_hooks` users
 - **Structural sharing** — preserve identity of unchanged nested fields on refetch
-- **Retry policy** — configurable retry count + backoff per query
 - **Better error surface** — typed error variants, network-vs-parse distinction
-- **Predicate-based `invalidateQueries`** — `(key) => bool` instead of just prefix
 - **`QueryObserver` (imperative API)** for non-widget consumers
 
 ## v0.2 — Growth features
