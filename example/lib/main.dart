@@ -59,6 +59,12 @@ class Net {
   }
 
   static Future<T> _timed<T>(String label, Future<T> Function() run) async {
+    // swrly kicks off the initial fetch during the QueryBuilder's first build so
+    // it can show `loading` on the first frame. This instrumentation notifies
+    // ValueNotifiers (calls/log) that widgets listen to — mutating them
+    // synchronously here would fire "setState during build". Yield one microtask
+    // so these demo-only writes land just after the build phase.
+    await Future<void>.microtask(() {});
     calls.value += 1;
     final id = calls.value;
     note('▶ #$id  $label …');
