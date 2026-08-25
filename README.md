@@ -14,15 +14,12 @@ cache by query key, serve instantly while revalidating in the background, and
 invalidate on mutations. Inspired by [TanStack Query](https://tanstack.com/query)
 and [SWR](https://swr.vercel.app/).
 
-> **Status:** stable `0.1.x`; **`0.2.0` in prerelease** (`0.2.0-dev.N`) — adds
-> retry+backoff, optimistic rollback, and `keepPreviousData`. Core cache
-> semantics are covered by tests (100% line coverage on `lib/src`) and it runs
-> on every platform (mobile, desktop, **web**).
->
-> Trying the prerelease: `swrly: 0.2.0-dev.4` (pin exactly — prereleases aren't
-> picked by `^` constraints).
+> **Status:** stable **`0.2.0`** — retry+backoff, optimistic rollback and
+> `keepPreviousData` are released. Core cache semantics are covered by tests
+> (100% line coverage on `lib/src`) and it runs on every platform (mobile,
+> desktop, **web**).
 
-### New in 0.2.0 (dev)
+### New in 0.2.0
 
 - **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
   (`defaultRetry`/`defaultRetryDelay`), exponential 1s→30s by default.
@@ -89,8 +86,7 @@ cd example && flutter run -d chrome # web (real dio calls to a public API)
 
 ```yaml
 dependencies:
-  swrly: ^0.1.0          # latest stable
-  # swrly: 0.2.0-dev.4   # opt into the 0.2.0 prerelease (retry, rollback, keepPreviousData)
+  swrly: ^0.2.0
 ```
 
 ## How it works
@@ -145,6 +141,64 @@ QueryBuilder<Post>(
   builder: ...,
 )
 ```
+
+## Using swrly without widgets
+
+`QueryBuilder` is the *convenient* way to read a query, not the only one. The
+cache lives in `QueryClient`, so you can drive it imperatively from a repository
+layer, a route guard, a button handler or a background job — no widget involved:
+
+```dart
+// Just this one API call — but deduped, cached, staleTime-aware and retried.
+final posts = await QueryClient.instance.fetchQuery<List<Post>>(
+  key: const ['posts'],
+  fn: () => api.getPosts(),
+  staleTime: const Duration(seconds: 30),
+);
+```
+
+This is **not** a bypass of the cache. `fetchQuery` is the exact call
+`QueryBuilder` makes internally, so:
+
+- a fresh entry is returned from cache without touching the network,
+- concurrent calls for the same key share **one** in-flight request,
+- `retry` / `retryDelay` apply the same way,
+- and any `QueryBuilder` mounted on that key **updates from this call** — the
+  imperative and declarative APIs are two doors into the same cache.
+
+### The three ways to read a query
+
+| | API | Use it for |
+|---|---|---|
+| **Declarative** | `QueryBuilder<T>` / `MutationBuilder<T, V>` | widgets |
+| **Imperative** | `client.fetchQuery<T>(key:, fn:)` → `Future<T>` | repositories, prefetch, handlers, background work |
+| **Observe** | `client.observe<T>(key)` → `Stream<QueryState<T>>`, `client.stateOf<T>(key)` | bridging into Riverpod / Bloc / a service layer |
+
+Common imperative patterns:
+
+```dart
+// Prefetch before pushing a route — the detail screen then paints from cache.
+await QueryClient.instance.fetchQuery<Post>(
+  key: ['post', id],
+  fn: () => api.getPost(id),
+);
+if (context.mounted) Navigator.of(context).pushNamed('/post/$id');
+
+// Synchronous peek — no fetch, no await.
+final cached = QueryClient.instance.getQueryData<List<Post>>(['posts']);
+final state = QueryClient.instance.stateOf<List<Post>>(['posts']);
+
+// Watch a key from outside the widget tree.
+final sub = QueryClient.instance
+    .observe<List<Post>>(['posts'])
+    .listen((state) => print('posts -> ${state.status}'));
+```
+
+> **Heads-up on `observe`:** it hands you the entry's broadcast stream but does
+> **not** register a subscriber, so it doesn't hold the entry against
+> `cacheTime` GC the way a mounted `QueryBuilder` does. For a long-lived
+> non-widget consumer, keep the entry alive by re-`fetchQuery`-ing it, or wait
+> for the `QueryObserver` API on the roadmap, which will own that lifecycle.
 
 ## Mutations
 
@@ -228,9 +282,11 @@ for state.
 
 ## API at a glance
 
-- **`QueryClient`** — the cache. `fetchQuery`, `invalidateQueries(prefix)` /
-  `invalidateQueriesWhere((key) => bool)`, `setQueryData` / `getQueryData`,
-  `removeQueries`, `clear`.
+- **`QueryClient`** — the cache, and a complete API on its own (see
+  [Using swrly without widgets](#using-swrly-without-widgets)). `fetchQuery`
+  (imperative fetch), `observe` / `stateOf` (stream + synchronous read),
+  `invalidateQueries(prefix)` / `invalidateQueriesWhere((key) => bool)`,
+  `setQueryData` / `getQueryData`, `removeQueries`, `clear`.
 - **`QueryBuilder<T>`** — subscribes a widget to a key; rebuilds on state
   changes; auto-unsubscribes (drives GC). `enabled`, `refetchOnResume`,
   `retry` / `retryDelay`, `keepPreviousData` / `placeholderData`.
@@ -268,13 +324,13 @@ AppBar) with a live FPS / build / raster / jank readout, a cache-ops
 micro-benchmark, and hundreds of live `QueryBuilder`s under continuous
 invalidation.
 
-## Known limitations (0.1.x)
+## Known limitations (0.2.x)
 
 - **In-memory only** — no disk persistence / offline cache yet.
 - No infinite/paginated query helper, no window-focus refetch (app-resume
-  refetch is supported), no devtools. (Retry/backoff landed in 0.2.0-dev.)
-- Cache is not yet persisted to disk (see above). (Optimistic writes now have a
-  built-in rollback via `MutationBuilder.onMutate` — landed in 0.2.0-dev.)
+  refetch is supported), no devtools.
+- No non-widget `QueryObserver` yet — `observe()` gives you the stream but does
+  not hold the entry against `cacheTime` GC (see the note above).
 - Cache keys must be primitives / lists / maps (structural equality); custom
   objects fall back to `toString()`.
 
@@ -283,7 +339,7 @@ invalidation.
 `swrly` grows with real use — the point is to erase the "hand-rolled" gaps so the
 honest comparison keeps tilting in `swrly`'s favour.
 
-**Shipped in 0.2.0-dev:** retry + backoff · optimistic rollback (`onMutate`) ·
+**Shipped in 0.2.0:** retry + backoff · optimistic rollback (`onMutate`) ·
 `keepPreviousData` / `placeholderData` · predicate `invalidateQueries` (0.1.1).
 
 **Still ahead:**
