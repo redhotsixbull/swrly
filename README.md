@@ -109,8 +109,9 @@ QueryBuilder(queryKey, queryFn, staleTime)
 - **`staleTime`** — how long data counts as *fresh*. Within it, re-reads are
   served from cache with **no** network call. After it, the next read refetches
   (while still showing the cached data — *stale-while-revalidate*).
-- **`cacheTime`** — how long an unused entry stays in memory after its last
-  `QueryBuilder` unsubscribes, before it's garbage-collected.
+- **`cacheTime`** — how long an unused entry stays in memory before it's
+  garbage-collected: the countdown starts when its last `QueryBuilder`
+  unsubscribes, and any later access (a `fetchQuery`, a read) restarts it.
 
 ## Quick start
 
