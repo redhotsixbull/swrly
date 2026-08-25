@@ -36,6 +36,7 @@ QueryClient({
 - `void setQueryData<T>(key, data)` — write a value directly (skips `queryFn`). Useful for optimistic updates.
 - `T? getQueryData<T>(key)` — read the cached value.
 - `void removeQueries(prefix)` — remove entries whose keys start with `prefix`.
+- `void removeQueriesWhere(bool Function(QueryKey) test)` — predicate form of `removeQueries`, mirroring `invalidateQueriesWhere`. Use it to drop one exact key without also dropping keys nested under it (this is what `Query.remove()` uses).
 - `void clear()` — drop everything, cancel all GC timers.
 
 ---
@@ -81,6 +82,89 @@ transition, so last-good data survives (`isError && hasData` is possible).
 
 ---
 
+## `Query<T>`
+
+A reusable **definition** of one query — the key, the fetch function and the
+per-query options — declared once and consumed from anywhere. Holds no state;
+the cache still lives in `QueryClient`. Two instances with the same key address
+the same entry.
+
+```dart
+final postsQuery = Query<List<Post>>(
+  key: const ['posts'],
+  fn: () => api.getPosts(),
+  staleTime: const Duration(seconds: 30),
+);
+```
+
+### Constructor
+
+- `key` — the cache key. Identifies exactly one entry.
+- `fn` — `Future<T> Function()`. Stored as a field, so an invalidation-driven
+  refetch always runs this closure (an inline `queryFn` changes identity every
+  build).
+- `staleTime` / `retry` / `retryDelay` — per-query options; each falls back to
+  the corresponding `QueryClient` default when null.
+- `client` — the cache to target. Defaults to `QueryClient.instance`.
+
+### Members
+
+- `Future<T> fetch()` — fetch through the cache: fresh → cached value, in-flight
+  → joined, otherwise runs `fn`. Identical to what `QueryBuilder` does, so a
+  mounted builder on this key sees the result.
+- `Future<T> refetch()` — fetch **past** `staleTime` (still deduped).
+- `T? data` — the cached value, or null. Synchronous; never fetches.
+- `QueryState<T> state` — the current state. Synchronous; never fetches.
+- `Stream<QueryState<T>> stream` — state changes for this key. Like
+  `QueryClient.observe`, listening does **not** register a subscriber.
+- `void setData(T value)` — direct write, skipping `fn`.
+- `void invalidate({bool refetch = true})` — marks **this key only** stale.
+  Exact, not prefix: invalidating `['posts']` leaves `['posts', 'page', 2]`
+  alone.
+- `void remove()` — drops **this key only** from the cache.
+- `Query<T> copyWith({key, fn, staleTime, retry, retryDelay, client})` — a copy
+  with individual options overridden (a one-off `staleTime` at a call site, or
+  pointing a shared definition at a test client).
+
+---
+
+## `QueryFamily<T, A>`
+
+A parameterised `Query` — one definition covering every argument.
+
+```dart
+final postQuery = QueryFamily<Post, int>(
+  prefix: const ['post'],
+  fn: (id) => api.getPost(id),
+);
+
+await postQuery(3).fetch();   // key ['post', 3]
+postQuery.invalidateAll();    // every ['post', …]
+```
+
+### Constructor
+
+- `prefix` — the shared leading segment of every member's key.
+- `fn` — `Future<T> Function(A arg)`.
+- `argKey` — `QueryKey Function(A arg)`, the segments appended after `prefix`.
+  Defaults to `[arg]`. Supply it when the argument is a record or custom object
+  so the key is built from primitives rather than falling back to `toString()`.
+- `staleTime` / `retry` / `retryDelay` / `client` — applied to every member.
+
+### Members
+
+- `Query<T> call(A arg)` — the member for `arg`; call the family directly
+  (`postQuery(3)`).
+- `QueryKey keyFor(A arg)` — `[...prefix, ...argKey(arg)]`.
+- `void invalidateAll({bool refetch = true})` — marks everything under `prefix`
+  stale.
+- `void removeAll()` — drops everything under `prefix`.
+
+Because keys are always built as `[...prefix, ...]`, `invalidateAll` /
+`removeAll` are correct by construction.
+
+---
+
 ## `QueryBuilder<T>`
 
 ```dart
@@ -109,6 +193,19 @@ once retries are exhausted.
 
 Setting `enabled: false` skips the initial fetch — useful for dependent
 queries: don't run a `posts(userId)` query until you have the `userId`.
+
+---
+
+### `QueryBuilder.of(query, {builder, enabled, refetchOnResume, keepPreviousData, placeholderData})`
+
+Builds from a `Query` definition instead of a loose `queryKey`/`queryFn` pair.
+`staleTime`, `retry`, `retryDelay` and `client` come from the definition; the
+widget-only options stay on the constructor. To override one of the definition's
+options at a single call site, pass `query.copyWith(staleTime: ...)`.
+
+```dart
+QueryBuilder.of(postsQuery, builder: (context, state, refetch) => ...);
+```
 
 ---
 

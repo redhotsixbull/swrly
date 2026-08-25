@@ -1,6 +1,6 @@
 name: swrly
 description: Server-state cache for Flutter — dedupe, cache by query key, stale-while-revalidate. A TanStack Query for Flutter.
-version: 0.2.1
+version: 0.3.0-dev.1
 homepage: https://github.com/redhotsixbull/swrly
 repository: https://github.com/redhotsixbull/swrly
 issue_tracker: https://github.com/redhotsixbull/swrly/issues

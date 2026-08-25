@@ -14,10 +14,24 @@ cache by query key, serve instantly while revalidating in the background, and
 invalidate on mutations. Inspired by [TanStack Query](https://tanstack.com/query)
 and [SWR](https://swr.vercel.app/).
 
-> **Status:** stable **`0.2.1`** — retry+backoff, optimistic rollback and
-> `keepPreviousData` are released. Core cache semantics are covered by tests
-> (100% line coverage on `lib/src`) and it runs on every platform (mobile,
-> desktop, **web**).
+> **Status:** stable **`0.2.1`**; **`0.3.0` in prerelease** (`0.3.0-dev.N`) —
+> adds `Query` / `QueryFamily` definition objects. Core cache semantics are
+> covered by tests (100% line coverage on `lib/src`) and it runs on every
+> platform (mobile, desktop, **web**).
+>
+> Trying the prerelease: `swrly: 0.3.0-dev.1` (pin exactly — prereleases aren't
+> picked by `^` constraints).
+
+### New in 0.3.0 (dev)
+
+- **`Query<T>` / `QueryFamily<T, A>`** — declare a query's key + fetch function
+  once, then use it imperatively (`postsQuery.fetch()`), declaratively
+  (`QueryBuilder.of(postsQuery)`), or for cache control
+  (`postsQuery.invalidate()`). See
+  [Define a query once](#define-a-query-once--query--queryfamily).
+- **`QueryBuilder.of(query)`** — build straight from a definition.
+- **`QueryClient.removeQueriesWhere(test)`** — predicate form of
+  `removeQueries`, mirroring `invalidateQueriesWhere`.
 
 ### New in 0.2.0
 
@@ -86,7 +100,8 @@ cd example && flutter run -d chrome # web (real dio calls to a public API)
 
 ```yaml
 dependencies:
-  swrly: ^0.2.0
+  swrly: ^0.2.0          # latest stable
+  # swrly: 0.3.0-dev.1   # opt into the 0.3.0 prerelease (Query / QueryFamily)
 ```
 
 ## How it works
@@ -201,6 +216,77 @@ final sub = QueryClient.instance
 > non-widget consumer, keep the entry alive by re-`fetchQuery`-ing it, or wait
 > for the `QueryObserver` API on the roadmap, which will own that lifecycle.
 
+## Define a query once — `Query` / `QueryFamily`
+
+Both APIs above need a `(key, fn)` pair, so without somewhere to put it you
+re-type that pair at every call site — and a typo in the key is a **silent cache
+miss**, not a compile error. A `Query` is that pair, named once:
+
+```dart
+// repository layer — declare it once
+final postsQuery = Query<List<Post>>(
+  key: const ['posts'],
+  fn: () => api.getPosts(),
+  staleTime: const Duration(seconds: 30),
+);
+
+final posts = await postsQuery.fetch();                      // imperative
+QueryBuilder.of(postsQuery, builder: (ctx, state, _) => ...); // declarative
+postsQuery.invalidate();                                      // cache control
+```
+
+A `Query` holds **no state** — the cache still lives in `QueryClient`. It's a
+value object, so two instances with the same key address the same entry.
+
+| On a `Query` | |
+|---|---|
+| `fetch()` | through the cache (fresh → no network, in-flight → joined) |
+| `refetch()` | past `staleTime` — the pull-to-refresh call |
+| `data` / `state` | synchronous reads; never fetch |
+| `stream` | `Stream<QueryState<T>>` for this key |
+| `setData(v)` | optimistic write |
+| `invalidate()` / `remove()` | **this key only** (see below) |
+| `copyWith(…)` | one-off option override at a call site |
+
+### Parameterised queries — `QueryFamily`
+
+```dart
+final postQuery = QueryFamily<Post, int>(
+  prefix: const ['post'],
+  fn: (id) => api.getPost(id),
+);
+
+await postQuery(3).fetch();    // key ['post', 3]
+postQuery(3).invalidate();     // just that one
+postQuery.invalidateAll();     // every ['post', …]
+```
+
+Keys are always `[...prefix, ...argument]`, so `invalidateAll()` / `removeAll()`
+are correct by construction. When the argument isn't a primitive, map it to
+primitives with `argKey` instead of letting the key fall back to `toString()`:
+
+```dart
+final pageQuery = QueryFamily<PostPage, (int, String)>(
+  prefix: const ['posts'],
+  argKey: (a) => [a.$1, a.$2],          // ['posts', 2, 'flutter']
+  fn: (a) => api.getPosts(page: a.$1, q: a.$2),
+);
+```
+
+### Exact vs prefix
+
+`Query.invalidate()` and `Query.remove()` are **exact** — a `Query` names one
+entry, so invalidating `['posts']` will not touch `['posts', 'page', 2]`. The
+prefix behaviour is still there when you want it: `family.invalidateAll()`,
+`client.invalidateQueries(prefix)`, `client.removeQueries(prefix)`.
+
+### Why not just inline it?
+
+Besides deduplicating the key: `QueryBuilder`'s `queryFn` is captured for later
+invalidation refetches, and an **inline closure changes identity on every
+build**. A `Query`'s `fn` is a stable field, so the closure a refetch runs is
+always the one you wrote.
+
 ## Mutations
 
 ```dart
@@ -278,8 +364,8 @@ an object you expose however you like).
 A dio cache interceptor caches at the **HTTP layer** (by URL). `swrly` caches at
 the **app-state layer** (by `queryKey`), so it also gives you loading/error
 state, `isFetching`, dedupe across widgets, `invalidateQueries`, optimistic
-`setQueryData`, and GC tied to widget lifecycle. Use dio for transport; `swrly`
-for state.
+`setQueryData`, and GC driven by subscription + last access. Use dio for
+transport; `swrly` for state.
 
 ## API at a glance
 
@@ -287,10 +373,16 @@ for state.
   [Using swrly without widgets](#using-swrly-without-widgets)). `fetchQuery`
   (imperative fetch), `observe` / `stateOf` (stream + synchronous read),
   `invalidateQueries(prefix)` / `invalidateQueriesWhere((key) => bool)`,
-  `setQueryData` / `getQueryData`, `removeQueries`, `clear`.
+  `setQueryData` / `getQueryData`, `removeQueries` /
+  `removeQueriesWhere((key) => bool)`, `clear`.
+- **`Query<T>` / `QueryFamily<T, A>`** — a reusable *definition* of a query
+  (key + fn + options). `fetch` / `refetch`, `data` / `state` / `stream`,
+  `setData`, `invalidate` / `remove` (exact), `copyWith`; families add
+  `keyFor`, `invalidateAll` / `removeAll`.
 - **`QueryBuilder<T>`** — subscribes a widget to a key; rebuilds on state
   changes; auto-unsubscribes (drives GC). `enabled`, `refetchOnResume`,
-  `retry` / `retryDelay`, `keepPreviousData` / `placeholderData`.
+  `retry` / `retryDelay`, `keepPreviousData` / `placeholderData`. Build it from
+  a definition with `QueryBuilder.of(query, builder: ...)`.
 - **`MutationBuilder<T, V>`** — `mutate(vars)` with `onMutate` (optimistic +
   rollback) / `onSuccess` / `onError` / `onSettled`.
 - **`QueryState<T>`** — `isLoading` / `isSuccess` / `isError`, `data`, `hasData`,
@@ -325,7 +417,7 @@ AppBar) with a live FPS / build / raster / jank readout, a cache-ops
 micro-benchmark, and hundreds of live `QueryBuilder`s under continuous
 invalidation.
 
-## Known limitations (0.2.x)
+## Known limitations
 
 - **In-memory only** — no disk persistence / offline cache yet.
 - No infinite/paginated query helper, no window-focus refetch (app-resume
@@ -333,7 +425,8 @@ invalidation.
 - No non-widget `QueryObserver` yet — `observe()` gives you the stream but does
   not hold the entry against `cacheTime` GC (see the note above).
 - Cache keys must be primitives / lists / maps (structural equality); custom
-  objects fall back to `toString()`.
+  objects fall back to `toString()`. `QueryFamily.argKey` is the escape hatch —
+  map the argument to primitives yourself.
 
 ## Where this is going
 
@@ -342,6 +435,8 @@ honest comparison keeps tilting in `swrly`'s favour.
 
 **Shipped in 0.2.0:** retry + backoff · optimistic rollback (`onMutate`) ·
 `keepPreviousData` / `placeholderData` · predicate `invalidateQueries` (0.1.1).
+**In 0.3.0-dev:** `Query` / `QueryFamily` definition objects · `QueryBuilder.of`
+· `removeQueriesWhere`.
 
 **Still ahead:**
 
@@ -349,8 +444,10 @@ honest comparison keeps tilting in `swrly`'s favour.
   (threads an abort token into `queryFn`), typed error surfaces.
 - **Bigger features** — **infinite / paginated** queries, window/online refetch
   triggers.
-- **Ergonomics** — non-widget `QueryObserver`, optional `flutter_hooks`
-  `useQuery` / `useMutation`. (`useQueries` is intentionally skipped as too
+- **Ergonomics** — a non-widget `QueryObserver` that owns its subscription
+  (so `observe` no longer leaks the GC question), and optional `flutter_hooks`
+  `useQuery` / `useMutation` — now nearly free on top of `Query`
+  (`useQuery(postsQuery)`). (`useQueries` is intentionally skipped as too
   React-flavored; a type-safe record combinator is the preferred path.)
 - **Persistence** — a pluggable adapter interface (hive / shared_preferences /
   drift) for offline-first caching.

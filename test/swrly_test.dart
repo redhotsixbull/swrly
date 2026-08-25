@@ -11,6 +11,8 @@ class _Custom {
   String toString() => 'Custom($n)';
 }
 
+Future<int> _identityFetch(int id) async => id;
+
 void main() {
   group('QueryKeyHash', () {
     test('equal keys hash equal, order-independent maps', () {
@@ -1086,6 +1088,356 @@ void main() {
 
     test('QueryClient.instance is a lazily-created shared singleton', () {
       expect(identical(QueryClient.instance, QueryClient.instance), isTrue);
+    });
+  });
+
+  group('Query / QueryFamily (0.3.0)', () {
+    test('fetch() goes through the cache, refetch() bypasses staleTime', () async {
+      final client = QueryClient();
+      var calls = 0;
+      final q = Query<int>(
+        key: const ['n'],
+        fn: () async {
+          calls += 1;
+          return calls;
+        },
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+
+      expect(await q.fetch(), 1);
+      expect(await q.fetch(), 1, reason: 'fresh cache should not refetch');
+      expect(calls, 1);
+
+      expect(await q.refetch(), 2, reason: 'refetch ignores staleTime');
+      expect(calls, 2);
+      client.clear();
+    });
+
+    test('fetch() shares the cache with client.fetchQuery on the same key',
+        () async {
+      final client = QueryClient();
+      var calls = 0;
+      final q = Query<int>(
+        key: const ['n'],
+        fn: () async {
+          calls += 1;
+          return 7;
+        },
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+
+      expect(await q.fetch(), 7);
+      final direct = await client.fetchQuery<int>(
+        key: const ['n'],
+        fn: () async => 99,
+        staleTime: const Duration(seconds: 10),
+      );
+      expect(direct, 7, reason: 'same key, still fresh — one shared entry');
+      expect(calls, 1);
+      client.clear();
+    });
+
+    test('data / state read synchronously; setData writes without fn',
+        () async {
+      final client = QueryClient();
+      var calls = 0;
+      final q = Query<int>(
+        key: const ['n'],
+        fn: () async {
+          calls += 1;
+          return 1;
+        },
+        client: client,
+      );
+
+      expect(q.data, isNull);
+      expect(q.state.isIdle, isTrue);
+
+      q.setData(42);
+      expect(q.data, 42);
+      expect(q.state.isSuccess, isTrue);
+      expect(calls, 0, reason: 'setData must not call fn');
+      client.clear();
+    });
+
+    test('stream emits state changes for the key', () async {
+      final client = QueryClient();
+      final q = Query<int>(
+        key: const ['n'],
+        fn: () async => 5,
+        client: client,
+      );
+
+      final seen = <QueryStatus>[];
+      final sub = q.stream.listen((s) => seen.add(s.status));
+      await q.fetch();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(seen, contains(QueryStatus.success));
+      client.clear();
+    });
+
+    test('invalidate() marks only this key stale, not keys nested under it',
+        () async {
+      final client = QueryClient();
+      var listCalls = 0;
+      var pageCalls = 0;
+      const stale = Duration(seconds: 10);
+
+      final list = Query<int>(
+        key: const ['posts'],
+        fn: () async => ++listCalls,
+        staleTime: stale,
+        client: client,
+      );
+      final page = Query<int>(
+        key: const ['posts', 'page', 2],
+        fn: () async => ++pageCalls,
+        staleTime: stale,
+        client: client,
+      );
+
+      await list.fetch();
+      await page.fetch();
+      expect([listCalls, pageCalls], [1, 1]);
+
+      list.invalidate();
+      await list.fetch();
+      await page.fetch();
+
+      expect(listCalls, 2, reason: 'the invalidated key refetches');
+      expect(pageCalls, 1,
+          reason: 'a nested key is untouched — Query.invalidate is exact');
+      client.clear();
+    });
+
+    test('invalidate() refetches an entry that has subscribers', () async {
+      final client = QueryClient();
+      var calls = 0;
+      final q = Query<int>(
+        key: const ['n'],
+        fn: () async => ++calls,
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+      client.onSubscribe<int>(q.key);
+      await q.fetch();
+      expect(calls, 1);
+
+      q.invalidate();
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 2, reason: 'entries with subscribers refetch immediately');
+
+      client.onUnsubscribe<int>(q.key);
+      client.clear();
+    });
+
+    test('remove() drops only this key, not keys nested under it', () async {
+      final client = QueryClient();
+      final list = Query<int>(
+          key: const ['posts'], fn: () async => 1, client: client);
+      final page = Query<int>(
+          key: const ['posts', 'page', 2], fn: () async => 2, client: client);
+
+      await list.fetch();
+      await page.fetch();
+
+      list.remove();
+      expect(list.data, isNull);
+      expect(page.data, 2, reason: 'Query.remove is exact');
+
+      client.removeQueries(const ['posts']);
+      expect(page.data, isNull, reason: 'removeQueries is still prefix-wide');
+      client.clear();
+    });
+
+    test('copyWith overrides individual options', () async {
+      final client = QueryClient();
+      var calls = 0;
+      final base = Query<int>(
+        key: const ['n'],
+        fn: () async => ++calls,
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+
+      await base.fetch();
+      await base.copyWith(staleTime: Duration.zero).fetch();
+      expect(calls, 2, reason: 'the copy fetches with its own staleTime');
+      expect(base.staleTime, const Duration(seconds: 10),
+          reason: 'the original is untouched');
+      expect(base.copyWith(key: const ['m']).key, const ['m']);
+      client.clear();
+    });
+
+    test('a Query with no client targets the shared singleton', () async {
+      final q = Query<int>(key: const ['singleton-probe'], fn: () async => 3);
+      await q.fetch();
+      expect(QueryClient.instance.getQueryData<int>(const ['singleton-probe']), 3);
+      q.remove();
+    });
+
+    test('toString names the type and the key', () {
+      final q = Query<int>(key: const ['n', 1], fn: () async => 1);
+      expect(q.toString(), 'Query<int>(["n",1])');
+      const f = QueryFamily<int, int>(prefix: ['post'], fn: _identityFetch);
+      expect(f.toString(), 'QueryFamily<int, int>(["post"])');
+    });
+
+    test('QueryFamily gives each argument its own cache entry', () async {
+      final client = QueryClient();
+      final calls = <int, int>{};
+      final family = QueryFamily<int, int>(
+        prefix: const ['post'],
+        fn: (id) async {
+          calls[id] = (calls[id] ?? 0) + 1;
+          return id * 10;
+        },
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+
+      expect(family.keyFor(3), ['post', 3]);
+      expect(await family(3).fetch(), 30);
+      expect(await family(4).fetch(), 40);
+      expect(await family(3).fetch(), 30);
+
+      expect(calls, {3: 1, 4: 1}, reason: 'one entry per argument');
+      client.clear();
+    });
+
+    test('QueryFamily.argKey builds keys from primitives', () async {
+      final client = QueryClient();
+      final family = QueryFamily<String, (int, String)>(
+        prefix: const ['posts'],
+        argKey: (a) => [a.$1, a.$2],
+        fn: (a) async => 'page ${a.$1} of ${a.$2}',
+        client: client,
+      );
+
+      expect(family.keyFor((2, 'flutter')), ['posts', 2, 'flutter']);
+      expect(await family((2, 'flutter')).fetch(), 'page 2 of flutter');
+      expect(client.getQueryData<String>(['posts', 2, 'flutter']),
+          'page 2 of flutter');
+      client.clear();
+    });
+
+    test('invalidateAll / removeAll cover every member of the family',
+        () async {
+      final client = QueryClient();
+      final calls = <int, int>{};
+      final family = QueryFamily<int, int>(
+        prefix: const ['post'],
+        fn: (id) async {
+          calls[id] = (calls[id] ?? 0) + 1;
+          return id;
+        },
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+      final other = Query<int>(
+        key: const ['posts'],
+        fn: () async => 0,
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+
+      await family(1).fetch();
+      await family(2).fetch();
+      await other.fetch();
+
+      family.invalidateAll();
+      await family(1).fetch();
+      await family(2).fetch();
+      expect(calls, {1: 2, 2: 2});
+
+      family.removeAll();
+      expect(family(1).data, isNull);
+      expect(family(2).data, isNull);
+      expect(other.data, 0, reason: 'a sibling prefix is untouched');
+      client.clear();
+    });
+
+    testWidgets('QueryBuilder.of renders a definition and shares its cache',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      final q = Query<int>(
+        key: const ['n'],
+        fn: () async {
+          calls += 1;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          return 7;
+        },
+        staleTime: const Duration(seconds: 10),
+        client: client,
+      );
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder.of(
+            q,
+            builder: (context, state, refetch) {
+              if (state.isLoading) return const Text('loading');
+              if (state.isSuccess) return Text('data=${state.data}');
+              return const Text('idle');
+            },
+          ),
+        ),
+      );
+
+      expect(find.text('loading'), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.text('data=7'), findsOneWidget);
+
+      expect(await q.fetch(), 7);
+      expect(calls, 1, reason: 'the imperative call hits the widget\'s entry');
+
+      // An imperative write reaches the mounted builder.
+      q.setData(9);
+      await tester.pumpAndSettle();
+      expect(find.text('data=9'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
+    });
+
+    testWidgets('QueryBuilder.of passes the definition\'s options through',
+        (tester) async {
+      final client = QueryClient();
+      var calls = 0;
+      final q = Query<int>(
+        key: const ['n'],
+        fn: () async {
+          calls += 1;
+          throw StateError('boom');
+        },
+        retry: 2,
+        retryDelay: (_) => Duration.zero,
+        client: client,
+      );
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: QueryBuilder.of(
+            q,
+            builder: (context, state, refetch) =>
+                Text(state.isError ? 'error' : 'pending'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('error'), findsOneWidget);
+      expect(calls, 3, reason: 'retry: 2 came from the Query definition');
+
+      await tester.pumpWidget(const SizedBox());
+      client.clear();
     });
   });
 }

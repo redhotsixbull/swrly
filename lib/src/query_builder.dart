@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import 'query.dart';
 import 'query_client.dart';
 import 'query_key.dart';
 import 'query_state.dart';
@@ -27,6 +28,45 @@ class QueryBuilder<T> extends StatefulWidget {
     this.keepPreviousData = false,
     this.placeholderData,
   });
+
+  /// Builds from a [Query] definition instead of a loose `queryKey`/`queryFn`
+  /// pair, so the key and fetch function are declared once and shared with the
+  /// imperative call sites:
+  ///
+  /// ```dart
+  /// final postsQuery = Query<List<Post>>(key: const ['posts'], fn: api.getPosts);
+  ///
+  /// QueryBuilder.of(postsQuery, builder: (context, state, refetch) => ...);
+  /// ```
+  ///
+  /// [Query.staleTime], `retry`, `retryDelay` and `client` come from the
+  /// definition; the widget-only options stay here. To override one of the
+  /// definition's options at a single call site, pass
+  /// `postsQuery.copyWith(staleTime: ...)`.
+  factory QueryBuilder.of(
+    Query<T> query, {
+    Key? key,
+    required QueryWidgetBuilder<T> builder,
+    bool enabled = true,
+    bool refetchOnResume = true,
+    bool keepPreviousData = false,
+    T? placeholderData,
+  }) {
+    return QueryBuilder<T>(
+      key: key,
+      queryKey: query.key,
+      queryFn: query.fn,
+      builder: builder,
+      staleTime: query.staleTime,
+      client: query.client,
+      enabled: enabled,
+      refetchOnResume: refetchOnResume,
+      retry: query.retry,
+      retryDelay: query.retryDelay,
+      keepPreviousData: keepPreviousData,
+      placeholderData: placeholderData,
+    );
+  }
 
   final QueryKey queryKey;
   final QueryFn<T> queryFn;
