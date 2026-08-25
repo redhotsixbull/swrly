@@ -14,7 +14,7 @@ cache by query key, serve instantly while revalidating in the background, and
 invalidate on mutations. Inspired by [TanStack Query](https://tanstack.com/query)
 and [SWR](https://swr.vercel.app/).
 
-> **Status:** stable **`0.2.0`** — retry+backoff, optimistic rollback and
+> **Status:** stable **`0.2.1`** — retry+backoff, optimistic rollback and
 > `keepPreviousData` are released. Core cache semantics are covered by tests
 > (100% line coverage on `lib/src`) and it runs on every platform (mobile,
 > desktop, **web**).

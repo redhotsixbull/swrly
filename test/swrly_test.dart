@@ -237,6 +237,47 @@ void main() {
       expect(client.entryCount, 0, reason: 'eventually GCs after re-arm');
     });
 
+    test('observe() on an unsubscribed key does not disarm GC', () async {
+      final client =
+          QueryClient(defaultCacheTime: const Duration(milliseconds: 20));
+      client.onSubscribe<int>(['g']);
+      await client.fetchQuery<int>(key: ['g'], fn: () async => 1);
+      client.onUnsubscribe<int>(['g']);
+
+      // Touching the entry cancels the pending GC; observe must re-arm it or
+      // the entry stays resident forever.
+      client.observe<int>(['g']).listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(client.entryCount, 0, reason: 'observe re-arms GC');
+    });
+
+    test('stateOf() on an unknown key does not leak the entry it creates',
+        () async {
+      final client =
+          QueryClient(defaultCacheTime: const Duration(milliseconds: 20));
+      expect(client.stateOf<int>(['nope']).isIdle, isTrue);
+      expect(client.entryCount, 1, reason: 'the read created an idle entry');
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(client.entryCount, 0, reason: 'stateOf re-arms GC');
+    });
+
+    test('observe/stateOf never GC an entry that has subscribers', () async {
+      final client =
+          QueryClient(defaultCacheTime: const Duration(milliseconds: 20));
+      client.onSubscribe<int>(['g']);
+      await client.fetchQuery<int>(key: ['g'], fn: () async => 1);
+
+      client.observe<int>(['g']).listen((_) {});
+      client.stateOf<int>(['g']);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(client.entryCount, 1, reason: 'a live subscriber holds the entry');
+      client.onUnsubscribe<int>(['g']);
+      client.clear();
+    });
+
     test('clear and removeQueries dispose entries', () async {
       final client = QueryClient();
       await client.fetchQuery<int>(key: ['a', 1], fn: () async => 1);
