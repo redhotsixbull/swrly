@@ -1,3 +1,25 @@
+## 0.3.0-dev.2
+
+Documentation hygiene — no API changes.
+
+- **The README no longer carries version numbers.** Every release meant editing
+  a status line, two "New in X" lists, an Install pin, an inline `(0.2.0)`
+  marker and a "Shipped in" recap — and it rotted twice (0.2.0 shipped while the
+  README still called it a prerelease and pinned `^0.1.0`). Now `pubspec.yaml`
+  is the version, `CHANGELOG.md` is the history, the pub.dev badge renders the
+  current number, and the README only describes what the library does. The two
+  "New in X" lists are replaced by one version-free **What you get**; Install is
+  `flutter pub add swrly`.
+- **New: `test/docs_freshness_test.dart`.** Three guards that fail the suite
+  rather than relying on remembering: the README must contain no version
+  literal, `CHANGELOG.md`'s newest entry must match `pubspec.yaml`, and every
+  public type must have an entry in `doc/API.md`. Together with
+  `readme_snippets_test.dart` (which compile-checks the samples), the docs now
+  break the build when they drift instead of going stale quietly.
+- The public-type guard immediately found one gap: `QueryKeyHash` had no entry
+  in `doc/API.md`. Documented, along with `queryKeyStartsWith` — both are useful
+  inside an `invalidateQueriesWhere` / `removeQueriesWhere` predicate.
+
 ## 0.3.0-dev.1
 
 First 0.3.0 feature, on the `dev` prerelease track for real-world verification.

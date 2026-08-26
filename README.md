@@ -14,35 +14,30 @@ cache by query key, serve instantly while revalidating in the background, and
 invalidate on mutations. Inspired by [TanStack Query](https://tanstack.com/query)
 and [SWR](https://swr.vercel.app/).
 
-> **Status:** stable **`0.2.1`**; **`0.3.0` in prerelease** (`0.3.0-dev.N`) —
-> adds `Query` / `QueryFamily` definition objects. Core cache semantics are
-> covered by tests (100% line coverage on `lib/src`) and it runs on every
-> platform (mobile, desktop, **web**).
->
-> Trying the prerelease: `swrly: 0.3.0-dev.1` (pin exactly — prereleases aren't
-> picked by `^` constraints).
+> **Status:** early but usable. Core cache semantics are covered by tests
+> (100% line coverage on `lib/src`) and it runs on every platform (mobile,
+> desktop, **web**).
 
-### New in 0.3.0 (dev)
+### What you get
 
-- **`Query<T>` / `QueryFamily<T, A>`** — declare a query's key + fetch function
-  once, then use it imperatively (`postsQuery.fetch()`), declaratively
-  (`QueryBuilder.of(postsQuery)`), or for cache control
-  (`postsQuery.invalidate()`). See
-  [Define a query once](#define-a-query-once--query--queryfamily).
-- **`QueryBuilder.of(query)`** — build straight from a definition.
-- **`QueryClient.removeQueriesWhere(test)`** — predicate form of
-  `removeQueries`, mirroring `invalidateQueriesWhere`.
-
-### New in 0.2.0
-
-- **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
-  (`defaultRetry`/`defaultRetryDelay`), exponential 1s→30s by default.
+- **Cache by `queryKey`** — `staleTime` / `cacheTime`, stale-while-revalidate,
+  request dedupe, GC when a key goes unused.
+- **Retry + backoff** — per-query `retry` / `retryDelay` plus client defaults,
+  exponential 1s→30s by default.
+- **Invalidation** — by prefix (`invalidateQueries`) or predicate
+  (`invalidateQueriesWhere`).
 - **Optimistic updates with automatic rollback** — `MutationBuilder.onMutate`
-  returns a rollback closure that runs automatically on failure.
+  returns a rollback closure that runs for you on failure.
 - **`keepPreviousData` / `placeholderData`** — no loading flash on key change
-  (search/pagination); `state.isPlaceholderData` marks the stand-in.
+  (search / pagination); `state.isPlaceholderData` marks the stand-in.
+- **`Query` / `QueryFamily` definitions** — declare a query's key + fetch
+  function once, use it imperatively, declaratively, or for cache control.
+- **Widget-free too** — `QueryClient` is a complete API on its own.
 
-See [`CHANGELOG.md`](CHANGELOG.md) and [`doc/ROADMAP.md`](doc/ROADMAP.md).
+**What changed when** lives in [`CHANGELOG.md`](CHANGELOG.md); **what's next**
+in [`doc/ROADMAP.md`](doc/ROADMAP.md). This README describes the library as it
+is now, and deliberately carries no version numbers — the badge above is the
+one place a version appears.
 
 ## Why swrly?
 
@@ -98,11 +93,13 @@ cd example && flutter run -d chrome # web (real dio calls to a public API)
 
 ## Install
 
-```yaml
-dependencies:
-  swrly: ^0.2.0          # latest stable
-  # swrly: 0.3.0-dev.1   # opt into the 0.3.0 prerelease (Query / QueryFamily)
+```bash
+flutter pub add swrly
 ```
+
+Prereleases ship on a `-dev.N` track and aren't picked up by `^` constraints —
+if you want one, pin the exact version listed at the top of
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ## How it works
 
@@ -307,7 +304,7 @@ MutationBuilder<Post, String>(
 )
 ```
 
-**Optimistic update with automatic rollback (0.2.0)** — `onMutate` runs before
+**Optimistic update with automatic rollback** — `onMutate` runs before
 the request and returns a rollback closure that swrly runs for you if it fails:
 
 ```dart
@@ -433,10 +430,8 @@ invalidation.
 `swrly` grows with real use — the point is to erase the "hand-rolled" gaps so the
 honest comparison keeps tilting in `swrly`'s favour.
 
-**Shipped in 0.2.0:** retry + backoff · optimistic rollback (`onMutate`) ·
-`keepPreviousData` / `placeholderData` · predicate `invalidateQueries` (0.1.1).
-**In 0.3.0-dev:** `Query` / `QueryFamily` definition objects · `QueryBuilder.of`
-· `removeQueriesWhere`.
+What's already here is listed under [What you get](#what-you-get); what landed
+when is in [`CHANGELOG.md`](CHANGELOG.md).
 
 **Still ahead:**
 

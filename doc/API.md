@@ -50,6 +50,15 @@ inside each list element, but `Map` keys are sorted for hashing so
 Prefix semantics: `['user', 1]` starts with `['user']`, so `invalidateQueries(['user'])`
 matches every user-scoped query.
 
+Two helpers back that behaviour, and both are public because a predicate you
+pass to `invalidateQueriesWhere` / `removeQueriesWhere` often wants them:
+
+- `bool queryKeyStartsWith(QueryKey key, QueryKey prefix)` — the prefix test.
+- `QueryKeyHash.of(key)` — the deterministic identity of a key. Two keys are the
+  same cache entry iff their hashes compare equal, so
+  `QueryKeyHash.of(candidate) == QueryKeyHash.of(target)` is the exact-key test
+  (it is what `Query.invalidate()` / `Query.remove()` use).
+
 ---
 
 ## `QueryState<T>`
