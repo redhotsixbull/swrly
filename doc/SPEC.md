@@ -90,10 +90,14 @@ the test suite (`test/swrly_test.dart`) pins down.
 ## 8. Garbage collection — `cacheTime`
 
 - An entry is disposed `cacheTime` after its **last subscriber** unsubscribes.
-- Any access (`fetchQuery`, `setQueryData`, `observe`, subscribe) MUST cancel a
-  pending GC so an entry is never disposed out from under a live user
-  ("disposal-during-use" is a bug). GC is re-armed when the entry is idle
-  again.
+- Any access (`fetchQuery`, `setQueryData`, `primeRefetcher`, `observe`,
+  `stateOf`, subscribe) MUST cancel a pending GC so an entry is never disposed
+  out from under a live user ("disposal-during-use" is a bug).
+- Every such access MUST then **re-arm** GC if the entry has no subscribers.
+  Cancelling without re-arming would keep an unsubscribed entry resident
+  forever — and a read of an absent key creates an idle entry, which must not
+  outlive `cacheTime` either. (`observe` / `stateOf` cancelled without re-arming
+  before 0.2.1.)
 - `removeQueries(prefix)` and `clear()` dispose immediately (closing streams,
   cancelling timers).
 

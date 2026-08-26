@@ -139,13 +139,25 @@ class QueryClient {
     });
   }
 
+  /// Broadcast stream of state changes for [key].
+  ///
+  /// Listening does **not** register a subscriber — only a mounted
+  /// `QueryBuilder` (via `onSubscribe`) does that. Touching the entry cancels a
+  /// pending GC, so this re-arms one afterwards: without it an `observe` on an
+  /// unsubscribed key would disarm GC permanently and leak the entry.
   Stream<QueryState<T>> observe<T>(QueryKey key) {
     final entry = _entryFor<T>(key);
+    _armGcIfIdle(entry);
     return entry.stream;
   }
 
+  /// Synchronous read of the current state for [key]. Never fetches.
+  ///
+  /// Re-arms GC for the same reason as [observe] — reading an absent key
+  /// creates an idle entry, which must not outlive `cacheTime`.
   QueryState<T> stateOf<T>(QueryKey key) {
     final entry = _entryFor<T>(key);
+    _armGcIfIdle(entry);
     return entry.state;
   }
 
