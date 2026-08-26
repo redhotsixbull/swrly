@@ -28,7 +28,7 @@ QueryClient({
 ### Methods
 
 - `Future<T> fetchQuery<T>({key, fn, staleTime, retry, retryDelay})` — imperative fetch. Uses cache if fresh, dedups in-flight requests, emits state updates through the stream. `retry`/`retryDelay` fall back to the client defaults.
-- `Stream<QueryState<T>> observe<T>(key)` — broadcast stream of state changes.
+- `Stream<QueryState<T>> observe<T>(key)` — broadcast stream of state changes. Note it does **not** register a subscriber, so unlike a mounted `QueryBuilder` it does not hold the entry against `cacheTime` GC; a long-lived non-widget consumer should keep the entry warm via `fetchQuery`.
 - `QueryState<T> stateOf<T>(key)` — synchronous read of current state.
 - `void invalidateQueries(prefix, {bool refetch = true})` — mark all keys starting with `prefix` stale. With `refetch: true` (default), entries that currently have subscribers are refetched immediately using their last captured `queryFn` (last-writer-wins for a shared key); others refetch on next observe.
 - `void invalidateQueriesWhere(bool Function(QueryKey) test, {bool refetch = true})` — predicate form of `invalidateQueries` for sets a prefix can't express (e.g. every `['post', id]`, or a match on a map field in the key).

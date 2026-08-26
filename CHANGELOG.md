@@ -1,3 +1,26 @@
+## 0.2.1
+
+- **Fix: `observe()` / `stateOf()` no longer disarm garbage collection.** Both go
+  through the internal entry lookup, which cancels a pending GC timer so an
+  entry can't be disposed out from under a caller — but neither re-armed it, so
+  observing (or synchronously reading) a key with no subscribers left the entry
+  resident forever, and `stateOf` on an *unknown* key leaked the idle entry it
+  created. Both now re-arm GC, matching `fetchQuery` / `setQueryData`. Entries
+  with a live subscriber (a mounted `QueryBuilder`) are unaffected. Found while
+  documenting the non-widget path below.
+
+- **README: "Using swrly without widgets".** `QueryClient` is a complete API on
+  its own; the README now documents the imperative path (`fetchQuery`) and the
+  observe path (`observe` / `stateOf`) alongside `QueryBuilder`, with a table of
+  the three ways to read a query and patterns for prefetch-before-navigate,
+  synchronous peeks and non-widget subscriptions.
+- **Documented that `observe()` does not register a subscriber**, so it does not
+  hold an entry against `cacheTime` GC (README + `doc/API.md`).
+- README status/install corrected for the released `0.2.0` (they still described
+  `0.2.0` as a prerelease and pinned `^0.1.0`).
+- **Example:** don't notify instrumentation `ValueNotifier`s during build.
+- **Tests:** 50 (3 new, covering the GC re-arm); `lib/src` stays at 100% line coverage.
+
 ## 0.2.0
 
 Stable release of the 0.2.0 line (the `0.2.0-dev.*` notes below are the full
