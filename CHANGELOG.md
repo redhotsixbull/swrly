@@ -1,3 +1,43 @@
+## 0.3.0-dev.1
+
+First 0.3.0 feature, on the `dev` prerelease track for real-world verification.
+
+- **New: `Query<T>` / `QueryFamily<T, A>` — query definition objects.** Declare a
+  query's key, fetch function and options **once**, then consume the same
+  definition three ways: imperatively (`postsQuery.fetch()` / `refetch()`),
+  declaratively (`QueryBuilder.of(postsQuery, builder: ...)`), or for cache
+  control (`data` / `state` / `stream` / `setData` / `invalidate` / `remove` /
+  `copyWith`). Previously the `(key, fn)` pair had to be retyped at every call
+  site, where a mistyped key is a silent cache miss rather than a compile error.
+  A `Query` is a stateless value object — the cache still lives in
+  `QueryClient`, and two definitions with the same key address the same entry.
+  See SPEC §10.
+- **`QueryFamily`** covers parameterised queries. Keys are always
+  `[...prefix, ...argKey(arg)]` (default `[arg]`), so `invalidateAll()` /
+  `removeAll()` are correct by construction; supply `argKey` when the argument
+  is a record or custom object so the key is built from primitives instead of
+  `toString()`.
+- **`Query.invalidate()` / `Query.remove()` are exact**, not prefix-scoped — a
+  definition names one entry, so invalidating `['posts']` leaves
+  `['posts', 'page', 2]` alone. `invalidateQueries(prefix)` /
+  `removeQueries(prefix)` keep their prefix semantics.
+- **New: `QueryBuilder.of(query, builder: ...)`** — build a widget straight from
+  a definition. Because a definition's `fn` is a stable field rather than an
+  inline closure, the `queryFn` re-captured for invalidation refetches is
+  identical across builds.
+- **New: `QueryClient.removeQueriesWhere(test)`** — predicate form of
+  `removeQueries`, mirroring `invalidateQueriesWhere`.
+- **Docs:** README "Define a query once" section, SPEC §10, API reference for
+  both types; the SPEC's out-of-scope list no longer claims 0.2.0 features are
+  missing, and ROADMAP's duplicate `v0.2` section is folded into `v0.4`.
+- **Tests:** 15 new tests for the definition objects, plus a new
+  `test/readme_snippets_test.dart` that compile-checks every Dart snippet in
+  the README and `doc/API.md` against the real API, so a doc example can't
+  drift from the code without the suite going red. 67 tests total; `lib/src`
+  stays at 100% line coverage (330/330).
+
+Backward compatible with `0.2.x` — purely additive.
+
 ## 0.2.1
 
 - **Fix: `observe()` / `stateOf()` no longer disarm garbage collection.** Both go

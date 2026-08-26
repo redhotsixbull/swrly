@@ -342,8 +342,16 @@ class QueryClient {
   }
 
   void removeQueries(QueryKey prefix) {
+    removeQueriesWhere((key) => queryKeyStartsWith(key, prefix));
+  }
+
+  /// Predicate form of [removeQueries]: drops every entry whose key satisfies
+  /// [test]. Use it when a prefix can't express the set — notably to remove a
+  /// single exact key without also removing entries nested under it (this is
+  /// what `Query.remove()` uses).
+  void removeQueriesWhere(bool Function(QueryKey key) test) {
     _entries.removeWhere((_, entry) {
-      final match = queryKeyStartsWith(entry.key, prefix);
+      final match = test(entry.key);
       if (match) entry.dispose();
       return match;
     });
