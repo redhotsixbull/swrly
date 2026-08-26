@@ -54,6 +54,10 @@
 - ✅ **`QueryBuilder.of(query)`** *(0.3.0-dev.1)*
 - ✅ **`QueryClient.removeQueriesWhere(test)`** — predicate form of
   `removeQueries` *(0.3.0-dev.1)*
+- ✅ **Docs that can't rot** — the README carries no version numbers, and
+  `docs_freshness_test.dart` / `readme_snippets_test.dart` fail the suite if a
+  version literal, a stale CHANGELOG, an undocumented public type or a broken
+  code sample creeps in *(0.3.0-dev.2)*
 - ☐ Example harness screen demonstrating definitions (matching the 0.2.0-dev.4
   verification pattern)
 - ☐ Query cancellation when subscribers all leave
