@@ -42,9 +42,9 @@
 - ⊘ `useQueries` — intentionally skipped (too React-flavored); if parallel is
   needed, prefer a type-safe record combinator (`QueryGroup2Builder`)
 
-  *(Query cancellation and infinite queries moved to v0.3.0.)*
+  *(Query cancellation and infinite queries moved out of the 0.2.0 line — see v0.4.)*
 
-## v0.3.0 — Definition objects (in progress, `dev` track)
+## v0.3.0 — Definition objects (shipped)
 
 - ✅ **`Query<T>` / `QueryFamily<T, A>`** — declare a query's key + fetch fn once,
   then consume it imperatively (`q.fetch()`), declaratively
@@ -58,10 +58,9 @@
   `docs_freshness_test.dart` / `readme_snippets_test.dart` fail the suite if a
   version literal, a stale CHANGELOG, an undocumented public type or a broken
   code sample creeps in *(0.3.0-dev.2)*
-- ☐ Example harness screen demonstrating definitions (matching the 0.2.0-dev.4
-  verification pattern)
-- ☐ Query cancellation when subscribers all leave
-- ☐ Infinite / paginated queries
+
+  *(Query cancellation, infinite queries and an example screen for definitions
+  moved to v0.4 — 0.3.0 was cut on the definition objects and the docs guards.)*
 
 ## Next — Usability polish
 
@@ -79,6 +78,8 @@
 - **Query cancellation** — abort in-flight requests when subscribers all leave
 - **Focus / online listeners** — configurable refetch triggers beyond app resume
 - **Persistence adapter interface** — plug in shared_preferences / hive / drift
+- **Example screen for definitions** — an in-app harness for `Query` /
+  `QueryFamily`, matching the 0.2.0-dev.4 verification pattern
 
 ## v0.5 — Ecosystem
 
