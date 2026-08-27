@@ -31,7 +31,7 @@
 - **Predicate-based `invalidateQueries`** — `invalidateQueriesWhere((key) => bool)`.
 - Documented last-writer-wins semantics for a shared key's captured `queryFn`.
 
-## v0.2.0 — Growth features (in progress, `dev` track)
+## v0.2.0 — Growth features (shipped)
 
 - ✅ **Retry + backoff** — per-query `retry`/`retryDelay` + client defaults
   (`defaultRetry`/`defaultRetryDelay`). Exponential 1s→30s default. *(0.2.0-dev.1)*
@@ -39,25 +39,47 @@
   automatically on error *(0.2.0-dev.2)*
 - ✅ **`keepPreviousData` / `placeholderData`** — no loading flash on key change
   *(0.2.0-dev.3)*
-- ☐ Query cancellation when subscribers all leave
-- ☐ Infinite / paginated queries
 - ⊘ `useQueries` — intentionally skipped (too React-flavored); if parallel is
   needed, prefer a type-safe record combinator (`QueryGroup2Builder`)
 
+  *(Query cancellation and infinite queries moved out of the 0.2.0 line — see v0.4.)*
+
+## v0.3.0 — Definition objects (shipped)
+
+- ✅ **`Query<T>` / `QueryFamily<T, A>`** — declare a query's key + fetch fn once,
+  then consume it imperatively (`q.fetch()`), declaratively
+  (`QueryBuilder.of(q)`) or for cache control (`q.invalidate()`). Exact
+  invalidate/remove; families derive `[...prefix, ...arg]` keys so
+  `invalidateAll` is correct by construction. *(0.3.0-dev.1)*
+- ✅ **`QueryBuilder.of(query)`** *(0.3.0-dev.1)*
+- ✅ **`QueryClient.removeQueriesWhere(test)`** — predicate form of
+  `removeQueries` *(0.3.0-dev.1)*
+- ✅ **Docs that can't rot** — the README carries no version numbers, and
+  `docs_freshness_test.dart` / `readme_snippets_test.dart` fail the suite if a
+  version literal, a stale CHANGELOG, an undocumented public type or a broken
+  code sample creeps in *(0.3.0-dev.2)*
+
+  *(Query cancellation, infinite queries and an example screen for definitions
+  moved to v0.4 — 0.3.0 was cut on the definition objects and the docs guards.)*
+
 ## Next — Usability polish
 
-- **`useQuery` / `useMutation` hooks** for `flutter_hooks` users
+- **`QueryObserver` (imperative API)** for non-widget consumers — owns its
+  subscription, so `observe` no longer leaves the `cacheTime` GC question to the
+  caller
+- **`useQuery` / `useMutation` hooks** for `flutter_hooks` users — nearly free on
+  top of `Query` (`useQuery(postsQuery)`)
 - **Structural sharing** — preserve identity of unchanged nested fields on refetch
 - **Better error surface** — typed error variants, network-vs-parse distinction
-- **`QueryObserver` (imperative API)** for non-widget consumers
 
-## v0.2 — Growth features
+## v0.4 — Robustness
 
 - **Infinite queries** (`InfiniteQueryBuilder<T>`) — pagination with `getNextPageParam`
-- **Optimistic-update helpers** — `mutate(input, { optimisticData, rollbackOnError })`
 - **Query cancellation** — abort in-flight requests when subscribers all leave
 - **Focus / online listeners** — configurable refetch triggers beyond app resume
 - **Persistence adapter interface** — plug in shared_preferences / hive / drift
+- **Example screen for definitions** — an in-app harness for `Query` /
+  `QueryFamily`, matching the 0.2.0-dev.4 verification pattern
 
 ## v0.5 — Ecosystem
 

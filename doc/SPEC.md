@@ -163,7 +163,42 @@ the test suite (`test/swrly_test.dart`) pins down.
   be silently skipped). Only `setState` is guarded by `mounted`.
 - Returns the result, or `null` if the mutation threw.
 
+## 10. Query definitions — `Query` / `QueryFamily` (0.3.0)
+
+- A `Query<T>` is a **stateless value object**: `(key, fn, staleTime, retry,
+  retryDelay, client)`. It stores nothing; every operation delegates to the
+  `QueryClient` it targets (`client ?? QueryClient.instance`). Two `Query`
+  instances with the same key therefore address the **same** cache entry, and a
+  `Query` may be constructed per call site without cost to cache identity.
+- `fetch()` MUST be equivalent to `client.fetchQuery(key:, fn:, staleTime:,
+  retry:, retryDelay:)` — same freshness, dedupe, generation-guard and retry
+  semantics (§2–§4, §8.1). `refetch()` is `fetch()` with `staleTime:
+  Duration.zero`.
+- `data`, `state` are synchronous reads and MUST NOT trigger a fetch. `stream`
+  is `client.observe(key)` and, like it, does **not** register a subscriber
+  (§8).
+- `invalidate()` and `remove()` are **exact**, not prefix-scoped: a `Query`
+  names one entry, so `Query(key: ['posts']).invalidate()` MUST leave
+  `['posts', 'page', 2]` alone. This deliberately differs from
+  `invalidateQueries(prefix)` / `removeQueries(prefix)` (§6), which stay
+  prefix-scoped. `removeQueriesWhere(test)` is the predicate form backing exact
+  removal.
+- `copyWith` returns a new definition; the original is unaffected. A null
+  argument means "keep the current value" — it cannot clear an option back to
+  null.
+- `QueryFamily<T, A>` builds member keys as `[...prefix, ...argKey(arg)]`, with
+  `argKey` defaulting to `[arg]`. The prefix invariant is what makes
+  `invalidateAll()` / `removeAll()` correct by construction; a custom `argKey`
+  supplies only the **suffix**, so it cannot break the invariant.
+- `QueryBuilder.of(query, ...)` MUST forward `staleTime`/`retry`/`retryDelay`/
+  `client` from the definition and take widget-only options (`enabled`,
+  `refetchOnResume`, `keepPreviousData`, `placeholderData`) from its own
+  arguments. Because a definition's `fn` is a stable field rather than an inline
+  closure, the closure re-captured by `primeRefetcher` on rebuild (§9) is
+  identical across builds.
+
 ## Not yet (out of scope)
-Infinite queries, `select`/`placeholderData`/`keepPreviousData`, optimistic
-rollback helper, request cancellation, window-focus refetch, persistence,
-devtools.
+Infinite queries, `select`, request cancellation, window-focus refetch,
+persistence, devtools, and a non-widget `QueryObserver` that owns its
+subscription. (`placeholderData` / `keepPreviousData` and the optimistic
+rollback helper shipped in 0.2.0 — see §9 and §8.1.)

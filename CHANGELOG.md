@@ -1,3 +1,95 @@
+## 0.3.0
+
+Stable release of the 0.3.0 line (the `0.3.0-dev.*` notes below are the full
+history). Headline additions since `0.2.x`:
+
+- **`Query<T>` / `QueryFamily<T, A>` — query definition objects.** Declare a
+  query's key, fetch function and options **once**, then consume that same
+  definition imperatively (`postsQuery.fetch()` / `refetch()`), declaratively
+  (`QueryBuilder.of(postsQuery, builder: ...)`) or for cache control (`data` /
+  `state` / `stream` / `setData` / `invalidate` / `remove`). Retyping the
+  `(key, fn)` pair at every call site made a mistyped key a silent cache miss
+  rather than a compile error; a definition is the single spelling of the key.
+  The cache still lives in `QueryClient` — a `Query` is a stateless value
+  object, and two definitions with the same key address the same entry.
+  See SPEC §10.
+- **`QueryFamily`** for parameterised queries — keys are always
+  `[...prefix, ...argKey(arg)]`, so `invalidateAll()` / `removeAll()` are
+  correct by construction.
+- **`Query.invalidate()` / `Query.remove()` are exact**, not prefix-scoped;
+  `invalidateQueries(prefix)` / `removeQueries(prefix)` keep prefix semantics.
+- **`QueryClient.removeQueriesWhere(test)`** — predicate form of
+  `removeQueries`, mirroring `invalidateQueriesWhere`.
+- **Docs that can't rot** — the README carries no version literals, and
+  `docs_freshness_test.dart` / `readme_snippets_test.dart` fail the suite on a
+  version literal, a CHANGELOG that has drifted from `pubspec.yaml`, an
+  undocumented public type, or a code sample that no longer compiles.
+
+**70 tests**; `lib/src` stays at 100% line coverage (330/330). Backward
+compatible with `0.2.x` — purely additive.
+
+## 0.3.0-dev.2
+
+Documentation hygiene — no API changes.
+
+- **The README no longer carries version numbers.** Every release meant editing
+  a status line, two "New in X" lists, an Install pin, an inline `(0.2.0)`
+  marker and a "Shipped in" recap — and it rotted twice (0.2.0 shipped while the
+  README still called it a prerelease and pinned `^0.1.0`). Now `pubspec.yaml`
+  is the version, `CHANGELOG.md` is the history, the pub.dev badge renders the
+  current number, and the README only describes what the library does. The two
+  "New in X" lists are replaced by one version-free **What you get**; Install is
+  `flutter pub add swrly`.
+- **New: `test/docs_freshness_test.dart`.** Three guards that fail the suite
+  rather than relying on remembering: the README must contain no version
+  literal, `CHANGELOG.md`'s newest entry must match `pubspec.yaml`, and every
+  public type must have an entry in `doc/API.md`. Together with
+  `readme_snippets_test.dart` (which compile-checks the samples), the docs now
+  break the build when they drift instead of going stale quietly.
+- The public-type guard immediately found one gap: `QueryKeyHash` had no entry
+  in `doc/API.md`. Documented, along with `queryKeyStartsWith` — both are useful
+  inside an `invalidateQueriesWhere` / `removeQueriesWhere` predicate.
+
+## 0.3.0-dev.1
+
+First 0.3.0 feature, on the `dev` prerelease track for real-world verification.
+
+- **New: `Query<T>` / `QueryFamily<T, A>` — query definition objects.** Declare a
+  query's key, fetch function and options **once**, then consume the same
+  definition three ways: imperatively (`postsQuery.fetch()` / `refetch()`),
+  declaratively (`QueryBuilder.of(postsQuery, builder: ...)`), or for cache
+  control (`data` / `state` / `stream` / `setData` / `invalidate` / `remove` /
+  `copyWith`). Previously the `(key, fn)` pair had to be retyped at every call
+  site, where a mistyped key is a silent cache miss rather than a compile error.
+  A `Query` is a stateless value object — the cache still lives in
+  `QueryClient`, and two definitions with the same key address the same entry.
+  See SPEC §10.
+- **`QueryFamily`** covers parameterised queries. Keys are always
+  `[...prefix, ...argKey(arg)]` (default `[arg]`), so `invalidateAll()` /
+  `removeAll()` are correct by construction; supply `argKey` when the argument
+  is a record or custom object so the key is built from primitives instead of
+  `toString()`.
+- **`Query.invalidate()` / `Query.remove()` are exact**, not prefix-scoped — a
+  definition names one entry, so invalidating `['posts']` leaves
+  `['posts', 'page', 2]` alone. `invalidateQueries(prefix)` /
+  `removeQueries(prefix)` keep their prefix semantics.
+- **New: `QueryBuilder.of(query, builder: ...)`** — build a widget straight from
+  a definition. Because a definition's `fn` is a stable field rather than an
+  inline closure, the `queryFn` re-captured for invalidation refetches is
+  identical across builds.
+- **New: `QueryClient.removeQueriesWhere(test)`** — predicate form of
+  `removeQueries`, mirroring `invalidateQueriesWhere`.
+- **Docs:** README "Define a query once" section, SPEC §10, API reference for
+  both types; the SPEC's out-of-scope list no longer claims 0.2.0 features are
+  missing, and ROADMAP's duplicate `v0.2` section is folded into `v0.4`.
+- **Tests:** 15 new tests for the definition objects, plus a new
+  `test/readme_snippets_test.dart` that compile-checks every Dart snippet in
+  the README and `doc/API.md` against the real API, so a doc example can't
+  drift from the code without the suite going red. 67 tests total; `lib/src`
+  stays at 100% line coverage (330/330).
+
+Backward compatible with `0.2.x` — purely additive.
+
 ## 0.2.1
 
 - **Fix: `observe()` / `stateOf()` no longer disarm garbage collection.** Both go
