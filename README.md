@@ -101,6 +101,42 @@ Prereleases ship on a `-dev.N` track and aren't picked up by `^` constraints —
 if you want one, pin the exact version listed at the top of
 [`CHANGELOG.md`](CHANGELOG.md).
 
+## Using with AI assistants
+
+The repo ships an [`AGENTS.md`](AGENTS.md) rulebook so AI coding
+assistants (Claude Code, Cursor, Aider, GitHub Copilot, Windsurf, ...)
+follow the same swrly conventions your codebase already does — for
+brand-new feature work as much as for refactors. Point your assistant
+at it once and it'll route through swrly by default when writing any
+API/server-state code.
+
+Pick whichever fits your tool:
+
+| Tool | How |
+|---|---|
+| **Claude Code** | Append this line to your project's `CLAUDE.md`: `See rules at https://raw.githubusercontent.com/redhotsixbull/swrly/main/AGENTS.md` (Claude fetches it on demand) |
+| **Cursor** | Add the same line to `.cursorrules`, or drop the `AGENTS.md` file directly into your project root |
+| **Aider / Windsurf / Continue / Copilot Workspace** | Drop `AGENTS.md` into your project root — most tools auto-detect this file (see [agentsmd.dev](https://agentsmd.dev)) |
+| **Any assistant with a system-prompt slot** | Paste the raw URL into your instructions |
+
+Copy the URL:
+
+```
+https://raw.githubusercontent.com/redhotsixbull/swrly/main/AGENTS.md
+```
+
+Or download the file directly:
+
+```bash
+curl -O https://raw.githubusercontent.com/redhotsixbull/swrly/main/AGENTS.md
+```
+
+Once installed, ask your assistant anything from "add a posts screen"
+to "clean up this notifier" — it'll follow the conventions in
+`AGENTS.md` inline, and fetch the deeper `.claude/skills/*/SKILL.md`
+prompts from raw GitHub when the task warrants a step-by-step
+procedure (init, refactor-*, audit).
+
 ## How it works
 
 ```
