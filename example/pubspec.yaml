@@ -20,6 +20,8 @@ dependencies:
   flutter_hooks: ^0.20.5
   swrly:
     path: ../
+  swrly_hooks:
+    path: ../packages/swrly_hooks
 
 dev_dependencies:
   flutter_test:

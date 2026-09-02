@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:swrly/swrly.dart';
+import 'package:swrly_hooks/swrly_hooks.dart';
 
 import '../shared/api.dart';
 import '../shared/network_pill.dart';
 import '../shared/post.dart';
 import '../shared/queries.dart';
 import '../shared/widgets.dart';
-import 'use_swrly.dart';
 
 /// Pattern: **flutter_hooks** × swrly.
 ///

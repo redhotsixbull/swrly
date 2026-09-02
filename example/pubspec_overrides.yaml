@@ -1,0 +1,7 @@
+# Development-time override: force swrly_hooks to resolve its `swrly`
+# dep against the same local path the example uses, instead of pub.dev.
+# Not shipped; not needed once swrly_hooks is published against the
+# matching swrly version.
+dependency_overrides:
+  swrly:
+    path: ../
