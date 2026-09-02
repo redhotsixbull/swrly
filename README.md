@@ -155,6 +155,49 @@ QueryBuilder<Post>(
 )
 ```
 
+## Using with your state management
+
+`swrly` is scoped to **server state** (data your app fetched from an API and
+caches). It doesn't own your client state (form inputs, filters, navigation)
+— your existing state-management library keeps doing that. The five patterns
+below live in [`example/lib/patterns/`](example/lib/patterns) as runnable
+Flutter code; each one implements the same posts list + detail + optimistic
+create demo, differing only in *how client state is threaded to the UI*.
+
+| Pattern | Client state via | Where to look |
+|---|---|---|
+| **StatefulWidget (`setState`)** | `setState` | [`patterns/plain`](example/lib/patterns/plain) |
+| **Provider** | `ChangeNotifier` (no `List<Post>` inside!) | [`patterns/provider`](example/lib/patterns/provider) |
+| **Riverpod** | `StateProvider` — swrly runs beside, not underneath | [`patterns/riverpod`](example/lib/patterns/riverpod) |
+| **Bloc / Cubit** | `Cubit<String>` — repo calls `Query.fetch()` | [`patterns/bloc`](example/lib/patterns/bloc) |
+| **flutter_hooks** | `useState` + copy-paste `useSwrlyQuery` snippet | [`patterns/hooks`](example/lib/patterns/hooks) |
+
+**The one rule that holds across all five**: the state-management library
+never holds `List<Post>`, `isLoading`, or `error` for fetched data. Those
+live in the swrly cache. See [`doc/CONVENTIONS.md`](doc/CONVENTIONS.md) for
+the full ruleset.
+
+### A note on `flutter_hooks`
+
+`swrly` deliberately doesn't ship `useQuery` / `useMutation`. Dart has no
+peer-dependency story, so adding `flutter_hooks` as a dep would force it
+on every user; a self-hosted hook runtime would silo swrly hooks from
+`useState`/`useEffect`. Instead, `Query.stream` is the stable hooking
+point and users own a ~10-line snippet:
+
+```dart
+QueryState<T> useSwrlyQuery<T>(Query<T> query) {
+  useEffect(() { query.fetch(); return null; }, [query.key.toString()]);
+  final snapshot = useStream<QueryState<T>>(
+    query.stream, initialData: query.state,
+  );
+  return snapshot.data ?? query.state;
+}
+```
+
+The full snippet (with `useSwrlyMutation`) is in
+[`example/lib/patterns/hooks/use_swrly.dart`](example/lib/patterns/hooks/use_swrly.dart).
+
 ## Using swrly without widgets
 
 `QueryBuilder` is the *convenient* way to read a query, not the only one. The

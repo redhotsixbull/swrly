@@ -11,6 +11,13 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   dio: ^5.7.0
+  # State management libraries — used ONLY by the per-pattern demos in
+  # lib/patterns/. The `swrly` package itself does not depend on any of
+  # these; see doc/CONVENTIONS.md.
+  provider: ^6.1.2
+  flutter_riverpod: ^2.5.1
+  flutter_bloc: ^8.1.6
+  flutter_hooks: ^0.20.5
   swrly:
     path: ../
 

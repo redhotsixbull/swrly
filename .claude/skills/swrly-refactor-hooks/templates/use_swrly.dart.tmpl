@@ -1,0 +1,60 @@
+// lib/hooks/use_swrly.dart — canonical swrly + flutter_hooks bridge.
+//
+// swrly deliberately doesn't ship this hook — see the swrly README's
+// "flutter_hooks" section and doc/CONVENTIONS.md §10 for the rationale.
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:swrly/swrly.dart';
+
+QueryState<T> useSwrlyQuery<T>(Query<T> query) {
+  useEffect(() {
+    query.fetch();
+    return null;
+  }, [query.key.toString()]);
+  final snapshot = useStream<QueryState<T>>(
+    query.stream,
+    initialData: query.state,
+  );
+  return snapshot.data ?? query.state;
+}
+
+({MutationState<T> state, Future<void> Function(V vars) mutate})
+    useSwrlyMutation<T, V>(Future<T> Function(V) fn) {
+  final state = useState<MutationState<T>>(const MutationState.idle());
+  final disposed = useRef<bool>(false);
+  useEffect(() => () => disposed.value = true, const []);
+
+  Future<void> mutate(V vars) async {
+    state.value = const MutationState.loading();
+    try {
+      final result = await fn(vars);
+      if (!disposed.value) state.value = MutationState.success(result);
+    } catch (e, st) {
+      if (!disposed.value) state.value = MutationState.error(e, st);
+    }
+  }
+
+  return (state: state.value, mutate: mutate);
+}
+
+@immutable
+class MutationState<T> {
+  const MutationState._(this.status,
+      {this.data, this.error, this.stackTrace});
+  const MutationState.idle() : this._(MutationStatus.idle);
+  const MutationState.loading() : this._(MutationStatus.loading);
+  const MutationState.success(T value)
+      : this._(MutationStatus.success, data: value);
+  const MutationState.error(Object err, StackTrace? st)
+      : this._(MutationStatus.error, error: err, stackTrace: st);
+  final MutationStatus status;
+  final T? data;
+  final Object? error;
+  final StackTrace? stackTrace;
+  bool get isLoading => status == MutationStatus.loading;
+  bool get isSuccess => status == MutationStatus.success;
+  bool get isError => status == MutationStatus.error;
+}
+
+enum MutationStatus { idle, loading, success, error }
