@@ -1,3 +1,38 @@
+## 0.3.1
+
+Ecosystem release — **no changes to `lib/`**, the public API is byte-identical
+with `0.3.0`. This release exists to broadcast the surrounding scaffolding
+that landed since:
+
+- **`swrly_hooks` companion package** ([pub.dev](https://pub.dev/packages/swrly_hooks))
+  — `useSwrlyQuery` / `useSwrlyMutation` for `HookWidget`-based screens.
+  Split into its own package so hook non-users don't pay for
+  `flutter_hooks` as a transitive dep; version-locked to swrly's own
+  `major.minor` (matching pattern to `flutter_riverpod` / `hooks_riverpod`).
+- **`example/lib/patterns/`** — 5 runnable side-by-side demos of swrly
+  combined with `setState` / Provider / Riverpod / Bloc / hooks, all
+  driving the same posts screen so the differences are visible at a
+  glance. See the README's "Using with your state management" section.
+- **`.claude/skills/`** — 9 Claude Code skills (`swrly-init`,
+  `swrly-refactor-{futurebuilder,stateful,provider,riverpod,bloc,hooks,spaghetti}`,
+  `swrly-audit`) that scaffold and refactor swrly usage in downstream
+  Flutter projects. Each skill was end-to-end verified against a real
+  Flutter project (fresh scaffold, plus flutter_weather and the
+  rrousselGit/riverpod pub example for the more complex cases).
+- **`AGENTS.md`** at repo root — a living rulebook AI coding assistants
+  (Claude Code, Cursor, Aider, Copilot, Windsurf, ...) can follow when
+  writing any server-state code in a swrly project, not just refactors.
+  Point the assistant at the raw GitHub URL and it defaults to swrly
+  conventions for new features and fetches deeper `.claude/skills/*`
+  procedures on demand.
+- **`doc/CONVENTIONS.md`** — the single-source rulebook every skill
+  cites. Split out of the design plan so both people and AI can consult
+  one file for the "swrly-shaped code" contract.
+
+All existing 70 tests unchanged and passing (widget tests in
+`swrly_hooks` unchanged too). `swrly_hooks` bumps in lockstep to
+`0.3.1-dev.1`.
+
 ## 0.3.0
 
 Stable release of the 0.3.0 line (the `0.3.0-dev.*` notes below are the full
