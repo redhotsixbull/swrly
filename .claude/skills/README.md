@@ -13,7 +13,7 @@ projects.
 | [`swrly-refactor-provider`](swrly-refactor-provider/) | Strip server state out of `ChangeNotifier`s in a Provider project. |
 | [`swrly-refactor-riverpod`](swrly-refactor-riverpod/) | Migrate `FutureProvider`s that hand-roll `staleTime` to swrly `Query`. |
 | [`swrly-refactor-bloc`](swrly-refactor-bloc/) | Replace data Blocs with swrly; keep state-machine Blocs, swap their repository cache. |
-| [`swrly-refactor-hooks`](swrly-refactor-hooks/) | Install canonical `useSwrlyQuery` snippet + refactor `HookWidget` fetches. |
+| [`swrly-refactor-hooks`](swrly-refactor-hooks/) | Install the `swrly_hooks` companion package + refactor `HookWidget` fetches to `useSwrlyQuery`. |
 | [`swrly-refactor-spaghetti`](swrly-refactor-spaghetti/) | Legacy no-state-mgmt cleanup — map first, convert one screen at a time. |
 | [`swrly-audit`](swrly-audit/) | Read-only anti-pattern report. |
 
