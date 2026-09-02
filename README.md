@@ -179,24 +179,32 @@ the full ruleset.
 
 ### A note on `flutter_hooks`
 
-`swrly` deliberately doesn't ship `useQuery` / `useMutation`. Dart has no
-peer-dependency story, so adding `flutter_hooks` as a dep would force it
-on every user; a self-hosted hook runtime would silo swrly hooks from
-`useState`/`useEffect`. Instead, `Query.stream` is the stable hooking
-point and users own a ~10-line snippet:
+`swrly` core deliberately doesn't depend on `flutter_hooks` — Dart has
+no peer-dependency story, so a hard dep would burden every non-hook
+user. The hook bindings ship as a **separate companion package**,
+`swrly_hooks`, mirroring the `flutter_bloc` / `hooks_riverpod` split:
+
+```bash
+flutter pub add swrly swrly_hooks
+```
 
 ```dart
-QueryState<T> useSwrlyQuery<T>(Query<T> query) {
-  useEffect(() { query.fetch(); return null; }, [query.key.toString()]);
-  final snapshot = useStream<QueryState<T>>(
-    query.stream, initialData: query.state,
-  );
-  return snapshot.data ?? query.state;
+import 'package:swrly_hooks/swrly_hooks.dart';
+
+class PostsPage extends HookWidget {
+  @override
+  Widget build(BuildContext context) {
+    final state = useSwrlyQuery(postsQuery);
+    if (state.isLoading && !state.hasData) return const CircularProgressIndicator();
+    return PostsView(state.data!);
+  }
 }
 ```
 
-The full snippet (with `useSwrlyMutation`) is in
-[`example/lib/patterns/hooks/use_swrly.dart`](example/lib/patterns/hooks/use_swrly.dart).
+The package handles the subscription lifecycle, canonical key hashing
+and unhandled-async details a hand-rolled snippet routinely gets wrong.
+See [`packages/swrly_hooks/`](packages/swrly_hooks/) and the hooks
+[pattern example](example/lib/patterns/hooks/).
 
 ## Using swrly without widgets
 

@@ -149,31 +149,46 @@ MutationBuilder<Post, String>(
 - **넓게 던지지 않는다**: `client.invalidateQueries([])` 같은 전방위 무효화는
   캐시의 존재 이유를 부정한다. 스킬이 이걸 만들면 안 된다.
 
-## 10. hook 사용자 — 정본 스니펫
+## 10. hook 사용자 — `swrly_hooks` 컴패니언 패키지
 
-`swrly`는 `flutter_hooks`를 의존하지 않는다. hook 사용자는 자기 프로젝트에서
-아래 정본 스니펫으로 커스텀 훅을 만든다 (스킬이 프로젝트에서 감지 시 심어줌):
+`swrly` core는 `flutter_hooks`를 의존하지 않는다. 대신 **`swrly_hooks`
+컴패니언 패키지**가 별도로 배포되어 hook 사용자에게 검증된 구현을
+제공한다 (`flutter_bloc` / `hooks_riverpod` 관례와 동일).
+
+```bash
+flutter pub add swrly swrly_hooks
+```
 
 ```dart
-// lib/hooks/use_swrly.dart
-import 'package:flutter_hooks/flutter_hooks.dart';
-import 'package:swrly/swrly.dart';
+import 'package:swrly_hooks/swrly_hooks.dart';
 
-QueryState<T> useSwrlyQuery<T>(Query<T> query) {
-  useEffect(() {
-    query.fetch();
-    return null;
-  }, [query.key.toString()]);
-  final snapshot = useStream<QueryState<T>>(
-    query.stream,
-    initialData: query.state,
-  );
-  return snapshot.data ?? query.state;
+class PostsPage extends HookWidget {
+  @override
+  Widget build(BuildContext context) {
+    final state = useSwrlyQuery(postsQuery);
+    // ...
+  }
 }
 ```
 
-`useSwrlyMutation`은 `MutationBuilder`와 동등한 표면을 원할 때 별도 훅으로
-같은 폴더에 둔다 (구체 형태는 `example/lib/patterns/hooks/` 참고).
+컴패니언 패키지가 처리하는 미묘한 것들 (검증 없는 hand-rolled 스니펫이
+반복해서 놓치는 부분):
+
+- **Subscriber 라이프사이클**: `onSubscribe`/`onUnsubscribe`로 실제 구독자
+  등록 — 그래야 `invalidate()`가 refetch를 트리거하고 `cacheTime` GC가
+  위젯이 살아있는 동안 캐시를 지우지 않는다.
+- **캐논 key 해시**: `QueryKeyHash.of(key)` 사용 — `List.toString`은
+  `['a, b']`와 `['a', 'b']`를 둘 다 `[a, b]`로 직렬화해서 충돌한다.
+- **Unhandled async**: `query.fetch()` Future는 `.ignore()` — 리트라이 최종
+  실패가 UI엔 `state.error`로 잘 뜨지만 dart zone error handler로
+  튀는 것을 막는다.
+
+hook 안 쓰는 사용자는 `swrly_hooks`를 설치하지 않는다 → 부담 없음.
+`MutationBuilder`가 필요한 optimistic + rollback 시나리오는 여전히 core
+API로 처리; `useSwrlyMutation`은 fire-and-forget 케이스용 얇은 훅이다.
+
+`swrly-init` / `swrly-refactor-hooks` 스킬은 프로젝트에서 `flutter_hooks`를
+감지하면 `flutter pub add swrly_hooks`를 실행해 이 패키지를 심는다.
 
 ## 11. 테스트 흔적을 남긴다
 

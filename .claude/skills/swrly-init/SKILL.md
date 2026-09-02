@@ -126,14 +126,23 @@ Append a short section to the project's README (or create a
   - Detected `flutter_hooks` → link `example/lib/patterns/hooks/`
   - None of the above → link `example/lib/patterns/plain/`
 
-### 5. If `flutter_hooks` is present — drop in the canonical hook
+### 5. If `flutter_hooks` is present — install the companion package
 
-Copy `templates/use_swrly.dart.tmpl` to `lib/hooks/use_swrly.dart`.
-This is the same snippet documented in the swrly README's "flutter_hooks"
-section. Do NOT add `flutter_hooks` as a dep of swrly — it's already in
-the user's project.
+Run:
 
-If `flutter_hooks` is NOT present: skip this step. Do not suggest adding it.
+```
+flutter pub add swrly_hooks
+```
+
+`swrly_hooks` is the official companion package that ships
+`useSwrlyQuery` / `useSwrlyMutation` with correct subscriber lifecycle,
+canonical key hashing and unhandled-async handling — the details a
+hand-rolled snippet routinely gets wrong. Do NOT copy a snippet into
+`lib/hooks/` anymore; the package supersedes that pattern.
+
+If `flutter_hooks` is NOT present: skip this step. Do not suggest adding
+it and do not install `swrly_hooks` — the base swrly install is enough
+for non-hook projects.
 
 ### 6. Do NOT do these things
 

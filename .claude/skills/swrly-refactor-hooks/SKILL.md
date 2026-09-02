@@ -1,31 +1,36 @@
 ---
 name: swrly-refactor-hooks
-description: In a flutter_hooks project, install the canonical `useSwrlyQuery`/`useSwrlyMutation` snippet at `lib/hooks/use_swrly.dart` and refactor `useState`/`useEffect`-based fetch code to use it. Use when the user asks to reduce useEffect + useState fetch boilerplate in a HookWidget, or convert hook-based fetches to a cache.
+description: In a flutter_hooks project, install the `swrly_hooks` companion package and refactor `useState`/`useEffect`-based fetch code to `useSwrlyQuery`. Use when the user asks to reduce useEffect + useState fetch boilerplate in a HookWidget, or convert hook-based fetches to a cache.
 ---
 
 # swrly-refactor-hooks
 
-`swrly` does NOT ship hook bindings — see `doc/CONVENTIONS.md §10`.
-This skill installs the canonical snippet the swrly library documents,
-then refactors hook-based fetches to use it.
+`swrly` core does not ship hook bindings. The **`swrly_hooks`** companion
+package does — see `doc/CONVENTIONS.md §10`. This skill installs the
+package and refactors hook-based fetches to use it.
 
 ## Prerequisites
 
 - `flutter_hooks` in `pubspec.yaml`.
 - `swrly` installed.
-- `lib/queries/` exists.
+- `lib/queries/` exists (per `swrly-init` scaffolding).
 
-If `flutter_hooks` is NOT in the project, halt and redirect user to
+If `flutter_hooks` is NOT in the project, halt and redirect the user to
 `swrly-refactor-stateful` — DO NOT suggest adding flutter_hooks.
 
 ## Steps
 
-### 1. Install the canonical hook snippet
+### 1. Install `swrly_hooks`
 
-If `lib/hooks/use_swrly.dart` doesn't exist, copy the template from
-this skill's `templates/use_swrly.dart.tmpl` (identical to the swrly
-repo's `example/lib/patterns/hooks/use_swrly.dart`). This is the source
-of truth — do not modify it during install.
+```
+flutter pub add swrly_hooks
+```
+
+Do NOT copy a hand-rolled snippet into `lib/hooks/`. The
+package supersedes that pattern and handles subscriber lifecycle,
+canonical key hashing, and unhandled-async details correctly — bugs
+that a copy-paste snippet routinely gets wrong (documented in the
+package's README).
 
 ### 2. Find candidate `HookWidget`s
 
@@ -65,9 +70,12 @@ class UserPage extends HookWidget {
 
 ### 3. Extract fetch to a `Query`
 
-Add to `lib/queries/`:
+Add to `lib/queries/<resource>.dart`:
 
 ```dart
+import 'package:swrly/swrly.dart';
+import '../api.dart';
+
 final userQuery = QueryFamily<User, int>(
   prefix: const ['user'],
   fn: (id) => api.getUser(id),
@@ -78,6 +86,8 @@ final userQuery = QueryFamily<User, int>(
 ### 4. Rewrite the HookWidget
 
 ```dart
+import 'package:swrly_hooks/swrly_hooks.dart';
+
 class UserPage extends HookWidget {
   final int id;
   @override
@@ -94,20 +104,20 @@ Model after [`example/lib/patterns/hooks/`](../../../example/lib/patterns/hooks/
 
 ### 5. Mutations
 
-For fire-and-forget button handlers, `useSwrlyMutation` is enough.
-For anything that needs `onMutate` rollback closures, `onSuccess`, or
-`onSettled` — use the built-in `MutationBuilder` (not a hook).
+For fire-and-forget button handlers, `useSwrlyMutation` (from
+`swrly_hooks`) is enough. For anything that needs `onMutate` rollback
+closures, `onSuccess`/`onSettled` callbacks that fire regardless of
+mount state — use swrly's built-in `MutationBuilder` (not a hook).
 
 ### 6. Do NOT
 
 - Do NOT add `flutter_hooks` to a project that doesn't already have it.
-- Do NOT modify the canonical `use_swrly.dart` snippet — it's a copy
-  of the swrly-repo canonical version and must match to stay in sync.
-- Do NOT split into "swrly_hooks" or a similar companion package.
+- Do NOT copy `useSwrlyQuery`/`useSwrlyMutation` into the user project's
+  `lib/hooks/` folder. Install the package.
 - Do NOT batch-convert. One HookWidget per diff.
 
 ## Reference
 
-- `example/lib/patterns/hooks/use_swrly.dart` — canonical snippet.
-- `example/lib/patterns/hooks/README.md` — the "why no library hooks" rationale.
+- `packages/swrly_hooks/` — the companion package source in the swrly repo.
+- `example/lib/patterns/hooks/` — hook pattern demo using the package.
 - `doc/CONVENTIONS.md §10`.

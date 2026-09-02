@@ -33,22 +33,26 @@
 | **Provider** | 직접 통합 없음 (그냥 같이 씀) | ✅ 1순위 — 국내 레거시 프로젝트 다수 |
 | **Riverpod** | 직접 통합 없음. 로드맵의 `AsyncValue` 브릿지는 v0.5 예정 | ✅ 1순위 — 사용자 다수 |
 | **Bloc / Cubit** | 직접 통합 없음. 로드맵의 `AsyncValue` 브릿지는 v0.5 예정 | ✅ 1순위 |
-| **flutter_hooks** | 라이브러리는 훅을 제공하지 않음 (결정). `Query.stream`이 훅킹 포인트 | ✅ 스킬 대응 — `flutter_hooks` 감지 시 정본 스니펫(`useStream(query.stream)`) 안내 |
+| **flutter_hooks** | 별도 `swrly_hooks` 컴패니언 패키지가 지원 (core는 여전히 의존 없음) | ✅ 스킬 대응 — `flutter_hooks` 감지 시 `flutter pub add swrly_hooks` |
 | **GetX** | 미지원 | ❌ 초기 범위 제외 (사용자 요청이 쌓이면 추가) |
 
 **핵심 원칙**: 스킬이 만들어내는 코드는 라이브러리가 **실제로 지원하는
 API만** 사용한다.
 
-**hook에 대한 명시적 결정**: `swrly`는 `flutter_hooks`를 의존성으로 갖지
-않고, 자체 hook 런타임도 구현하지 않는다. 이유:
+**hook에 대한 명시적 결정** (v2 — PR #13/#14 검증 반영): `swrly` core는
+`flutter_hooks`를 의존성으로 갖지 않는다. 그 위에 얹는 `useSwrlyQuery` /
+`useSwrlyMutation`은 **별도 컴패니언 패키지 `swrly_hooks`** 로 배포한다
+(`flutter_bloc` / `hooks_riverpod` 관례와 동일).
 
-- Dart에는 npm-style peer dep가 없어 의존성 추가는 훅 미사용자에게도 강제된다.
-- 자체 hook 런타임을 만들면 `flutter_hooks`의 다른 훅(`useState` 등)과 조합이 깨진다 — hook의 존재 이유(조합성) 자체를 부정하게 됨.
-- `Query.stream`이 이미 안정적인 훅킹 포인트라, hook 사용자는 자기 프로젝트에서 `useStream(query.stream)` 한 줄로 커스텀 훅을 만들 수 있다.
+이유:
 
-대신 README에 **정본 스니펫 한 조각**을 남기고 (`readme_snippets_test.dart`가
-훼손을 막아준다), `swrly-init` 스킬이 프로젝트에서 `flutter_hooks`를 감지하면
-그 스니펫을 사용자 코드에 심는다.
+- Dart는 npm-style peer dep가 없어 core에 `flutter_hooks`를 하드 넣으면 훅 미사용자에게 강제된다 → 컴패니언 분리로 해결
+- 자체 hook 런타임 구현은 조합성(compositionality) 파괴 → 금지 결정 유지
+- PR #13 초기에는 "정본 스니펫" 전략을 채택했으나, Codex 리뷰가 그 짧은 스니펫에서만 3개 실전 버그(subscriber 미등록, unhandled async, key hash 충돌)를 발견 → 라이브러리가 캡슐화해야 할 경계라는 게 증명됨. PR #14에서 컴패니언 패키지로 이관
+
+`swrly-init` / `swrly-refactor-hooks` 스킬은 `flutter_hooks`가 pubspec에
+있으면 `flutter pub add swrly_hooks`를 실행한다 (기존 "스니펫 복사" 스텝은
+제거됨).
 
 ---
 
@@ -126,9 +130,8 @@ API만** 사용한다.
 - 완전 대체가 어색한 경우 (예: 여러 이벤트가 얽힌 state machine) → repository 레이어만 `swrly`로, Bloc은 유지 안내
 
 **`swrly-refactor-hooks`**:
-- 라이브러리는 훅을 제공하지 않는다는 결정을 스킬이 반영한다.
-- `flutter_hooks`를 이미 쓰는 프로젝트에서 서버 fetch를 하는 `useState`/`useEffect` 조합을 감지 → **정본 커스텀 훅** (`useSwrlyQuery`, `useSwrlyMutation`) 을 사용자 `lib/hooks/` 아래에 심는다.
-- 정본 스니펫은 README `example/lib/patterns/hooks/`와 동일한 형태로 유지 (한 곳만 고치면 모두 동기화).
+- core는 훅을 제공하지 않는다는 결정, **컴패니언 패키지 `swrly_hooks`가 지원한다는 결정** 두 개를 스킬이 반영한다.
+- `flutter_hooks`를 이미 쓰는 프로젝트에서 서버 fetch를 하는 `useState`/`useEffect` 조합을 감지 → **`flutter pub add swrly_hooks` 실행** → `useSwrlyQuery` 사용하도록 리팩토링.
 - 스킬은 `flutter_hooks`가 pubspec에 없는 프로젝트에는 자기 도입을 강요하지 않고, 대신 `swrly-refactor-stateful`로 자연스럽게 안내.
 
 #### 3.2.4 `swrly-refactor-spaghetti` — 상태관리 없이 엉킨 코드
