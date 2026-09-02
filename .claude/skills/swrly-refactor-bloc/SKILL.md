@@ -24,8 +24,13 @@ Split Blocs into two buckets:
 ### 1. List candidate Blocs
 
 ```
-grep -rn "extends Bloc\|extends Cubit" lib/
+grep -rnE "extends .*Cubit|extends .*Bloc" lib/
 ```
+
+The wildcard is intentional — `HydratedCubit`, `HydratedBloc`,
+`ReplayBloc`, custom `BaseBloc` subclasses all inherit the Cubit/Bloc
+surface and need the same treatment. A naked `extends Cubit` grep misses
+them.
 
 For each, read the states file. A "data Bloc" typically has ~3 states
 (Initial, Loading, Loaded, Error) and one main event (Load / Refresh).
@@ -72,9 +77,13 @@ Then delete:
 - The event classes (Load/Refresh)
 - The `BlocProvider` wrapping the screen (if it wrapped only this Bloc)
 
-### 4. State machine Bloc: repository-layer swap
+### 4. State machine Bloc: swap where the cache SHOULD live
 
-Do NOT delete the Bloc. Instead, inside the repository the Bloc calls:
+The right location for the swap depends on whether the repository already
+has hand-rolled caching.
+
+**Case A — repository has a `_cached` field or in-memory memoization:**
+swap happens IN the repository. The Bloc's call site stays the same.
 
 Before:
 ```dart
@@ -95,10 +104,47 @@ class PostsRepository {
 }
 ```
 
-The Bloc's state machine stays. It now gets dedupe, `staleTime`, and
-future features (persistence, cancellation) for free.
+**Case B — repository is a thin API wrapper with no cache** (very common
+when following clean-architecture patterns): swap happens at the CALL
+SITE (the Bloc), not in the repo. The repo stays untouched.
+
+Before (inside a Cubit):
+```dart
+final data = await _repository.getWeather(city);
+```
+
+After:
+```dart
+final data = await weatherQuery(city).fetch();  // goes to swrly, which calls repo.getWeather via fn
+```
+
+Where `weatherQuery` is a `QueryFamily<Weather, String>` defined in
+`lib/<feature>/queries/weather.dart` with its `fn` set to
+`(city) => repo.getWeather(city)`.
+
+Either way, the Bloc's state machine stays. It now gets dedupe,
+`staleTime`, and future features for free.
 
 Model after [`example/lib/patterns/bloc/`](../../../example/lib/patterns/bloc/).
+
+### 4a. HydratedBloc / HydratedCubit specifically
+
+`hydrated_bloc` persists Bloc state to disk. swrly caches in memory.
+They solve **different** problems and should coexist:
+
+- `hydrated_bloc`: "on app relaunch, restore the last-seen state so the
+  user doesn't stare at a blank screen while the first fetch runs."
+- `swrly`: "within a session, dedupe requests + serve fresh entries
+  instantly without hitting the network."
+
+Do NOT tell the user swrly makes `hydrated_bloc` redundant — it doesn't.
+swrly is in-memory only (persistence is a v0.4 roadmap item). If the
+Bloc is a `HydratedBloc`/`HydratedCubit`:
+
+- Keep `hydrated_bloc` as-is.
+- Route the fetch call through `weatherQuery(city).fetch()` (Case B above).
+- On refetch (user pulled to refresh), the Cubit emits new state, which
+  hydrated_bloc persists — normal flow.
 
 ### 5. Mutations
 

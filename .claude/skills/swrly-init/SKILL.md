@@ -22,7 +22,7 @@ This skill is additive — it does NOT refactor existing fetch code (that's
 
 Read `pubspec.yaml` and note which of these are present:
 
-- `flutter_bloc` / `bloc`
+- `flutter_bloc` / `bloc` / `hydrated_bloc`
 - `provider`
 - `flutter_riverpod` / `riverpod`
 - `flutter_hooks`
@@ -30,12 +30,27 @@ Read `pubspec.yaml` and note which of these are present:
 - `dio` / `http` / `chopper` / `graphql` / any FirebaseX / `supabase_flutter`
 - `get` (GetX — see "GetX" note below)
 
-Also count files under `lib/` to gauge project size:
+**Multi-package apps**: if the project has `packages/` or `melos.yaml` or
+`pubspec_overrides.yaml`, ALSO scan sub-package pubspecs — the main app
+often hides its HTTP client inside a `foo_repository` or `foo_api` sub-
+package. Use:
+
+```
+find . -name pubspec.yaml -not -path './build/*' -exec grep -l 'dio\|http:\|chopper\|graphql' {} \;
+```
+
+**SDK compatibility**: check the target project's `environment.sdk`
+constraint. If it requires a Dart SDK the user does not have locally,
+halt and tell them — they'll need to upgrade Flutter first, or the
+version resolution will fail. swrly itself requires `^3.9.2`.
+
+Also count files under `lib/` to gauge project size (`find lib -name '*.dart' | wc -l`):
 
 - **Small** (< 20 files): scaffold `lib/queries/` at root
 - **Medium/large** (≥ 20 files): ask whether to use `lib/queries/` OR
-  `lib/features/<feature>/queries/` per-feature (default to the latter
-  if there's already a `lib/features/` folder)
+  `lib/<feature>/queries/` per-feature (default to the latter if the
+  project already organizes `lib/` by feature folders, whether that's
+  `lib/features/<feature>/` or just `lib/<feature>/`).
 
 ### 2. Install swrly
 
@@ -64,10 +79,16 @@ the detected HTTP package name (`dio`, `http`, `chopper`, `graphql`) or
 delete the import line if none.
 
 **b. Project already has HTTP calls** (e.g., an `Api` class, a `Repository`,
-inline `dio.get(...)` in a notifier). Grep for `dio.get\|http.get\|api\.`
-and pick ONE clear call site. Write a **real** Query for that resource
-into `lib/queries/<resource>.dart` (per-resource file, not one blob) —
-pointing the `fn` at the actual call. Then ALSO scaffold the placeholder
+inline `dio.get(...)` in a notifier). Grep with a broad pattern:
+
+```
+grep -rnE 'dio\.(get|post|put|delete|patch)|http\.(get|post|put|delete|patch)|(Repository|Service|Client|Api)\.[a-z]|_(repository|service|client|api)\.' lib/
+```
+
+Pick ONE clear call site — Repository/Service method calls count too, not
+just raw `dio.get`. Write a **real** Query for that resource into
+`lib/queries/<resource>.dart` (per-resource file, not one blob) — pointing
+the `fn` at the actual call. Then ALSO scaffold the placeholder
 `example_query.dart` so users see the template shape.
 
 Example when the project has an `Api` class with `Api.getPosts()`:
