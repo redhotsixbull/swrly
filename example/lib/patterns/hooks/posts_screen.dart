@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:swrly/swrly.dart';
 
 import '../shared/api.dart';
 import '../shared/network_pill.dart';
@@ -42,12 +43,16 @@ class PostsScreen extends HookWidget {
           ),
         ),
       ),
-      body: _body(context, state, query.value),
-      floatingActionButton: const _HookCreateFab(),
+      body: Column(
+        children: [
+          Expanded(child: _list(context, state, query.value)),
+          const _HookCreateRow(),
+        ],
+      ),
     );
   }
 
-  Widget _body(BuildContext context, dynamic state, String q) {
+  Widget _list(BuildContext context, QueryState<List<Post>> state, String q) {
     if (state.isLoading && !state.hasData) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -69,54 +74,57 @@ class PostsScreen extends HookWidget {
   }
 }
 
-/// Demonstrates the mutation hook side. Same optimistic pattern as
-/// `CreatePostFab` but expressed via the hook indirection.
-class _HookCreateFab extends HookWidget {
-  const _HookCreateFab();
+/// Same shape as `CreatePostRow` in the shared widgets — inline, no dialog —
+/// but written with the hook-flavored surface so the pattern demonstrates
+/// `useSwrlyMutation` alongside `useSwrlyQuery`.
+class _HookCreateRow extends HookWidget {
+  const _HookCreateRow();
 
   @override
   Widget build(BuildContext context) {
     final controller = useTextEditingController(text: 'A new post');
     final mut = useSwrlyMutation<Post, String>(Api.instance.createPost);
 
-    return FloatingActionButton.extended(
-      icon: mut.state.isLoading
-          ? const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: Colors.white))
-          : const Icon(Icons.add),
-      label: const Text('New post'),
-      onPressed: mut.state.isLoading
-          ? null
-          : () async {
-              final title = await showDialog<String>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('New post'),
-                  content: TextField(
-                    controller: controller,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: 'Title'),
-                  ),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancel')),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-                      child: const Text('Create'),
-                    ),
-                  ],
-                ),
-              );
-              if (title != null && title.isNotEmpty) {
-                await mut.mutate(title);
-                // Refetch on success — mirrors `onSettled` in MutationBuilder.
-                postsQuery.invalidate();
-              }
-            },
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+                labelText: 'New post title',
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: mut.state.isLoading
+                ? null
+                : () async {
+                    final title = controller.text.trim();
+                    if (title.isEmpty) return;
+                    await mut.mutate(title);
+                    // Invalidate so the list refetches (this hook is the
+                    // fire-and-forget variant; use MutationBuilder for
+                    // optimistic + rollback semantics).
+                    postsQuery.invalidate();
+                  },
+            child: mut.state.isLoading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : const Text('Create'),
+          ),
+        ],
+      ),
     );
   }
 }

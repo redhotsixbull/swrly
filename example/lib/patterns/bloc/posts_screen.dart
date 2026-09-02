@@ -53,35 +53,41 @@ class _PostsScreenBody extends StatelessWidget {
           ),
         ),
       ),
-      body: QueryBuilder.of(
-        postsQuery,
-        builder: (context, state, refetch) {
-          if (state.isLoading && !state.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state.isError && !state.hasData) {
-            return Center(child: Text('${state.error}'));
-          }
-          final posts = state.data ?? const [];
-          return BlocBuilder<SearchCubit, String>(
-            builder: (context, query) {
-              final filtered = filterPosts(posts, query);
-              return RefreshIndicator(
-                onRefresh: refetch,
-                child: ListView.separated(
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, i) => PostTile(
-                    post: filtered[i],
-                    onTap: () => showPostDetail(context, filtered[i].id),
-                  ),
-                ),
-              );
-            },
-          );
-        },
+      body: Column(
+        children: [
+          Expanded(
+            child: QueryBuilder.of(
+              postsQuery,
+              builder: (context, state, refetch) {
+                if (state.isLoading && !state.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (state.isError && !state.hasData) {
+                  return Center(child: Text('${state.error}'));
+                }
+                final posts = state.data ?? const [];
+                return BlocBuilder<SearchCubit, String>(
+                  builder: (context, query) {
+                    final filtered = filterPosts(posts, query);
+                    return RefreshIndicator(
+                      onRefresh: refetch,
+                      child: ListView.separated(
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, i) => PostTile(
+                          post: filtered[i],
+                          onTap: () => showPostDetail(context, filtered[i].id),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          const CreatePostRow(),
+        ],
       ),
-      floatingActionButton: const CreatePostFab(),
     );
   }
 }

@@ -45,35 +45,41 @@ class PostsScreen extends ConsumerWidget {
           ),
         ),
       ),
-      body: QueryBuilder.of(
-        postsQuery,
-        builder: (context, state, refetch) {
-          if (state.isLoading && !state.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state.isError && !state.hasData) {
-            return Center(child: Text('${state.error}'));
-          }
-          final posts = state.data ?? const [];
-          // Consumer for the search — only this subtree rebuilds on typing.
-          return Consumer(builder: (context, ref, _) {
-            final query = ref.watch(searchProvider);
-            final filtered = filterPosts(posts, query);
-            return RefreshIndicator(
-              onRefresh: refetch,
-              child: ListView.separated(
-                itemCount: filtered.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, i) => PostTile(
-                  post: filtered[i],
-                  onTap: () => showPostDetail(context, filtered[i].id),
-                ),
-              ),
-            );
-          });
-        },
+      body: Column(
+        children: [
+          Expanded(
+            child: QueryBuilder.of(
+              postsQuery,
+              builder: (context, state, refetch) {
+                if (state.isLoading && !state.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (state.isError && !state.hasData) {
+                  return Center(child: Text('${state.error}'));
+                }
+                final posts = state.data ?? const [];
+                // Consumer for the search — only this subtree rebuilds on typing.
+                return Consumer(builder: (context, ref, _) {
+                  final query = ref.watch(searchProvider);
+                  final filtered = filterPosts(posts, query);
+                  return RefreshIndicator(
+                    onRefresh: refetch,
+                    child: ListView.separated(
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, i) => PostTile(
+                        post: filtered[i],
+                        onTap: () => showPostDetail(context, filtered[i].id),
+                      ),
+                    ),
+                  );
+                });
+              },
+            ),
+          ),
+          const CreatePostRow(),
+        ],
       ),
-      floatingActionButton: const CreatePostFab(),
     );
   }
 }

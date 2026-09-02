@@ -87,76 +87,88 @@ class _PostDetailSheet extends StatelessWidget {
   }
 }
 
-/// FAB that runs a create mutation with optimistic insert + auto rollback.
-/// Same code across every pattern — mutations are pure swrly.
-class CreatePostFab extends StatelessWidget {
-  const CreatePostFab({super.key});
+/// Inline "create post" row — same shape as the main demo's `_CreatePostForm`.
+///
+/// Deliberately NOT a FAB-with-dialog: opening a dialog and running the
+/// mutation after the dialog closes creates a widget-tree teardown race
+/// (Flutter asserts `_dependents.isEmpty` in `framework.dart` at unmount).
+/// Keeping the input inline sidesteps that entirely and matches the
+/// proven pattern in `main.dart`.
+class CreatePostRow extends StatefulWidget {
+  const CreatePostRow({super.key});
+
+  @override
+  State<CreatePostRow> createState() => _CreatePostRowState();
+}
+
+class _CreatePostRowState extends State<CreatePostRow> {
+  final _controller = TextEditingController(text: 'A new post');
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MutationBuilder<Post, String>(
-      mutationFn: (title) => Api.instance.createPost(title),
-      onMutate: (title) {
-        final prev =
-            QueryClient.instance.getQueryData<List<Post>>(['posts']) ??
-                const <Post>[];
-        final draft = Post(id: -1, title: title, body: 'saving…');
-        QueryClient.instance
-            .setQueryData<List<Post>>(['posts'], [draft, ...prev]);
-        return () => QueryClient.instance
-            .setQueryData<List<Post>>(['posts'], prev); // auto rollback
-      },
-      onSuccess: (post, _) {
-        final cur = QueryClient.instance.getQueryData<List<Post>>(['posts']) ??
-            const <Post>[];
-        QueryClient.instance.setQueryData<List<Post>>(
-          ['posts'],
-          [post, ...cur.where((p) => p.id != -1)],
-        );
-      },
-      builder: (context, mutate, state) => FloatingActionButton.extended(
-        icon: state.isLoading
-            ? const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white))
-            : const Icon(Icons.add),
-        label: const Text('New post'),
-        onPressed: state.isLoading
-            ? null
-            : () async {
-                final title = await _promptTitle(context);
-                if (title != null && title.isNotEmpty) mutate(title);
-              },
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: MutationBuilder<Post, String>(
+        mutationFn: (title) => Api.instance.createPost(title),
+        onMutate: (title) {
+          final prev = QueryClient.instance
+                  .getQueryData<List<Post>>(const ['posts']) ??
+              const <Post>[];
+          final draft = Post(id: -1, title: title, body: 'saving…');
+          QueryClient.instance
+              .setQueryData<List<Post>>(const ['posts'], [draft, ...prev]);
+          return () => QueryClient.instance
+              .setQueryData<List<Post>>(const ['posts'], prev); // auto rollback
+        },
+        onSuccess: (post, _) {
+          final cur = QueryClient.instance
+                  .getQueryData<List<Post>>(const ['posts']) ??
+              const <Post>[];
+          QueryClient.instance.setQueryData<List<Post>>(
+            const ['posts'],
+            [post, ...cur.where((p) => p.id != -1)],
+          );
+        },
+        builder: (context, mutate, state) => Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  labelText: 'New post title',
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed:
+                  state.isLoading ? null : () => mutate(_controller.text),
+              child: state.isLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Text('Create'),
+            ),
+          ],
+        ),
       ),
     );
   }
-}
-
-Future<String?> _promptTitle(BuildContext context) async {
-  final controller = TextEditingController(text: 'A new post');
-  final result = await showDialog<String>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('New post'),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Title'),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-          child: const Text('Create'),
-        ),
-      ],
-    ),
-  );
-  controller.dispose();
-  return result;
 }
 
 /// Helper: filter the current posts list by a search query. Kept out of
@@ -164,7 +176,9 @@ Future<String?> _promptTitle(BuildContext context) async {
 List<Post> filterPosts(List<Post> posts, String query) {
   if (query.isEmpty) return posts;
   final q = query.toLowerCase();
-  return posts.where((p) =>
-      p.title.toLowerCase().contains(q) || p.body.toLowerCase().contains(q))
+  return posts
+      .where((p) =>
+          p.title.toLowerCase().contains(q) ||
+          p.body.toLowerCase().contains(q))
       .toList();
 }
