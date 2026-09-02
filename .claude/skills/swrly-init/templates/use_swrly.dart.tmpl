@@ -8,9 +8,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:swrly/swrly.dart';
 
-/// Subscribe a `HookWidget` to a swrly Query. Rebuilds on every state
-/// change. The `useEffect` kicks off an initial fetch (no-ops if fresh
-/// in cache).
 QueryState<T> useSwrlyQuery<T>(Query<T> query) {
   useEffect(() {
     query.fetch();
@@ -23,9 +20,6 @@ QueryState<T> useSwrlyQuery<T>(Query<T> query) {
   return snapshot.data ?? query.state;
 }
 
-/// Minimal mutation hook. For anything non-trivial (optimistic updates
-/// with rollback, onSuccess callbacks that must fire even after unmount),
-/// use the built-in `MutationBuilder` instead.
 ({MutationState<T> state, Future<void> Function(V vars) mutate})
     useSwrlyMutation<T, V>(Future<T> Function(V) fn) {
   final state = useState<MutationState<T>>(const MutationState.idle());

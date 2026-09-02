@@ -58,6 +58,37 @@ void main() {
       );
     });
 
+    test('canonical use_swrly.dart snippet is identical everywhere it lives',
+        () {
+      // doc/CONVENTIONS.md §10 promises a single canonical `useSwrlyQuery` /
+      // `useSwrlyMutation` snippet. It appears in three places:
+      //   1. example/lib/patterns/hooks/use_swrly.dart — the runnable demo
+      //   2. .claude/skills/swrly-init/templates/use_swrly.dart.tmpl
+      //   3. .claude/skills/swrly-refactor-hooks/templates/use_swrly.dart.tmpl
+      //
+      // The skills install the template into user projects, and if any of
+      // these drift the "canonical snippet" claim in CONVENTIONS.md becomes
+      // a lie. Pin them byte-for-byte here.
+      final paths = <String>[
+        'example/lib/patterns/hooks/use_swrly.dart',
+        '.claude/skills/swrly-init/templates/use_swrly.dart.tmpl',
+        '.claude/skills/swrly-refactor-hooks/templates/use_swrly.dart.tmpl',
+      ];
+      final contents = {
+        for (final p in paths) p: File(p).readAsStringSync(),
+      };
+      final canonical = contents[paths.first]!;
+      for (final entry in contents.entries.skip(1)) {
+        expect(
+          entry.value,
+          canonical,
+          reason: 'Canonical use_swrly.dart snippet drift: '
+              '${entry.key} differs from ${paths.first}. Sync them so '
+              'CONVENTIONS.md §10 stays honest.',
+        );
+      }
+    });
+
     test('every public type has an entry in doc/API.md', () {
       final api = File('doc/API.md').readAsStringSync();
       final declaration =
