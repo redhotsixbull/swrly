@@ -170,7 +170,7 @@ create demo, differing only in *how client state is threaded to the UI*.
 | **Provider** | `ChangeNotifier` (no `List<Post>` inside!) | [`patterns/provider`](example/lib/patterns/provider) |
 | **Riverpod** | `StateProvider` — swrly runs beside, not underneath | [`patterns/riverpod`](example/lib/patterns/riverpod) |
 | **Bloc / Cubit** | `Cubit<String>` — repo calls `Query.fetch()` | [`patterns/bloc`](example/lib/patterns/bloc) |
-| **flutter_hooks** | `useState` + copy-paste `useSwrlyQuery` snippet | [`patterns/hooks`](example/lib/patterns/hooks) |
+| **flutter_hooks** | `useState` + `useSwrlyQuery` from [`swrly_hooks`](https://pub.dev/packages/swrly_hooks) | [`patterns/hooks`](example/lib/patterns/hooks) |
 
 **The one rule that holds across all five**: the state-management library
 never holds `List<Post>`, `isLoading`, or `error` for fetched data. Those
@@ -205,6 +205,42 @@ The package handles the subscription lifecycle, canonical key hashing
 and unhandled-async details a hand-rolled snippet routinely gets wrong.
 See [`packages/swrly_hooks/`](packages/swrly_hooks/) and the hooks
 [pattern example](example/lib/patterns/hooks/).
+
+## Using with AI assistants
+
+The repo ships an [`AGENTS.md`](AGENTS.md) rulebook so AI coding
+assistants (Claude Code, Cursor, Aider, GitHub Copilot, Windsurf, ...)
+follow the same swrly conventions your codebase already does — for
+brand-new feature work as much as for refactors. Point your assistant
+at it once and it'll route through swrly by default when writing any
+API/server-state code.
+
+Pick whichever fits your tool:
+
+| Tool | How |
+|---|---|
+| **Claude Code** | Append this line to your project's `CLAUDE.md`: `See rules at https://raw.githubusercontent.com/redhotsixbull/swrly/main/AGENTS.md` (Claude fetches it on demand) |
+| **Cursor** | Add the same line to `.cursorrules`, or drop the `AGENTS.md` file directly into your project root |
+| **Aider / Windsurf / Continue / Copilot Workspace** | Drop `AGENTS.md` into your project root — most tools auto-detect this file (see [agentsmd.dev](https://agentsmd.dev)) |
+| **Any assistant with a system-prompt slot** | Paste the raw URL into your instructions |
+
+Copy the URL:
+
+```
+https://raw.githubusercontent.com/redhotsixbull/swrly/main/AGENTS.md
+```
+
+Or download the file directly:
+
+```bash
+curl -O https://raw.githubusercontent.com/redhotsixbull/swrly/main/AGENTS.md
+```
+
+Once installed, ask your assistant anything from "add a posts screen"
+to "clean up this notifier" — it'll follow the conventions in
+`AGENTS.md` inline, and fetch the deeper `.claude/skills/*/SKILL.md`
+prompts from raw GitHub when the task warrants a step-by-step
+procedure (init, refactor-*, audit).
 
 ## Using swrly without widgets
 
@@ -491,10 +527,11 @@ when is in [`CHANGELOG.md`](CHANGELOG.md).
 - **Bigger features** — **infinite / paginated** queries, window/online refetch
   triggers.
 - **Ergonomics** — a non-widget `QueryObserver` that owns its subscription
-  (so `observe` no longer leaks the GC question), and optional `flutter_hooks`
-  `useQuery` / `useMutation` — now nearly free on top of `Query`
-  (`useQuery(postsQuery)`). (`useQueries` is intentionally skipped as too
-  React-flavored; a type-safe record combinator is the preferred path.)
+  (so `observe` no longer leaks the GC question). `useQueries` is
+  intentionally skipped as too React-flavored; a type-safe record
+  combinator is the preferred path. (`flutter_hooks` `useSwrlyQuery` /
+  `useSwrlyMutation` already ship in the [`swrly_hooks`](https://pub.dev/packages/swrly_hooks)
+  companion package.)
 - **Persistence** — a pluggable adapter interface (hive / shared_preferences /
   drift) for offline-first caching.
 - **Ecosystem** — a DevTools panel, and **Riverpod / Bloc** `AsyncValue`
