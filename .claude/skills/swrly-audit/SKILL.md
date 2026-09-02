@@ -24,14 +24,51 @@ Any hit outside a queries folder is a violation.
 
 ### R2 — Hardcoded string `queryKey` (§4)
 
-Grep for `QueryBuilder(queryKey: [...])` with string literals that
-aren't part of a `Query`/`QueryFamily` definition. Prefer usage of
-`QueryBuilder.of(someQuery)`.
+```
+grep -rnE "\bQueryBuilder<" lib/ | grep -v "QueryBuilder\.of"
+```
+
+The regex intentionally does NOT try to match the closing `>` of the
+generic — `QueryBuilder<List<Post>>(` has a nested `>` that a simple
+`[^>]+>` pattern would stop at. Match just the opening `QueryBuilder<`
+and let `grep -v` peel off the `QueryBuilder.of` case.
+
+Any raw `QueryBuilder<T>(...)` (not `QueryBuilder.of(...)`) that
+constructs its own `queryKey` inline is a candidate — the user hasn't
+wrapped their (key, fn) pair in a `Query`/`QueryFamily` definition, so
+key typos become silent cache misses. Prefer `QueryBuilder.of(someQuery)`.
 
 ### R3 — Missing `staleTime` (§6)
 
-For every `Query(...)` / `QueryFamily(...)` construction, check that
-`staleTime:` is present. Grep for definitions, then parse each.
+`grep` alone can't catch this — `Query(...)` / `QueryFamily(...)`
+constructions span multiple lines. Find every queries file recursively
+first, then extract each definition and check for `staleTime:`:
+
+```
+# 1) Locate every queries file, not just top-level or nested-only.
+find lib -type f -name '*.dart' -path '*/queries/*' > /tmp/swrly-queries.txt
+
+# 2) For each, extract Query<...> AND QueryFamily<...> definition ranges
+#    and flag those without `staleTime:`.
+while IFS= read -r f; do
+  awk -v file="$f" '
+    /Query</ || /QueryFamily</ { block=""; capture=1 }
+    capture { block = block $0 "\n" }
+    /\);/ && capture {
+      if (block !~ /staleTime/) print file ":" NR " missing staleTime"
+      capture = 0
+    }
+  ' "$f"
+done < /tmp/swrly-queries.txt
+```
+
+Feature-organized projects (`lib/features/*/queries/*.dart`) are picked
+up because `find -path '*/queries/*'` matches at any depth.
+
+For a Dart-native approach: `dart run` a small script that parses each
+queries file's AST and reports each constructor call whose named-arg
+list has no `staleTime`. AST is more robust than the shell version if
+users have unusual formatting.
 
 ### R4 — Custom object as `argKey` fallback (§7)
 
@@ -41,13 +78,36 @@ is provided. If missing, flag.
 
 ### R5 — `swrly` wrapped in another framework's cache
 
-Grep for these anti-patterns:
-- `FutureProvider((.*) => .*Query.fetch()` (Riverpod wrapping swrly)
-- ChangeNotifier fields typed as `List<T>` / `Future<T>` that are set
-  from a swrly `fetch()` call
-- Bloc state classes that mirror a swrly Query's data
+Three shapes to look for:
 
-Each is a double-cache. Flag.
+```
+# a) Riverpod wrapping swrly.
+grep -rnE "(FutureProvider|StreamProvider|AsyncNotifier).*Query\.fetch" lib/
+
+# b) ChangeNotifier / Cubit holding a fetched List/Model.
+#    A single `grep -A 30 | grep` intersection MISSES the common shape
+#    where the field is declared on one line and assigned from
+#    Query.fetch() on a different line. Iterate class blocks instead.
+for f in $(grep -rlE "class .*(ChangeNotifier|Cubit)" lib/); do
+  awk '
+    /class .*(ChangeNotifier|Cubit)/ { in_class=1; block=""; header=$0 }
+    in_class { block = block $0 "\n" }
+    in_class && /^}/ {
+      if (block ~ /(List<|Future<|AsyncValue<)/ && block ~ /[Qq]uery.*\.fetch/) {
+        print FILENAME ": " header
+      }
+      in_class = 0
+    }
+  ' "$f"
+done
+
+# c) Bloc state class named like a Query's data (heuristic — often a
+#    sign of a data Bloc that should be a plain Query instead).
+grep -rnE "class .*(Loaded|Success|Loading|Error)" lib/
+```
+
+Each match is a **candidate** double-cache. Read the file to confirm
+the Query result is being stored redundantly before flagging.
 
 ### R6 — Broad invalidation
 
@@ -59,10 +119,11 @@ That defeats the cache. Flag.
 Grep for Query definitions whose `fn` returns something purely local
 (a form value, a toggle bool). Server state only. Flag.
 
-### R8 — `Query` in a widget file
+### R8 — (removed)
 
-Same as R1 but specifically for widget files (`*_page.dart`,
-`*_screen.dart`, `*_widget.dart`).
+Was a duplicate of R1 with a narrower file-name filter. R1 already
+catches every inline `Query`/`QueryFamily` outside `lib/queries/`
+regardless of file name; the separate rule was noise.
 
 ## Report format
 

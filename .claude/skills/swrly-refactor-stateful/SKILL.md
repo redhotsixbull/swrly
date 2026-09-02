@@ -13,7 +13,10 @@ whole point.
 ## Prerequisites
 
 - `swrly` in `pubspec.yaml`.
-- A `Query`/`QueryFamily` folder exists.
+- A `Query`/`QueryFamily` folder exists — `lib/queries/` for small
+  projects, `lib/<feature>/queries/` for feature-organized ones. If it
+  does NOT exist, halt and run `swrly-init` first (which creates it);
+  do not create the folder silently as part of this skill.
 
 ## Steps
 
@@ -70,7 +73,20 @@ confirm which parts move to swrly.
 
 ### 3. Extract the fetch to a `Query` in `lib/queries/`
 
-Add to the appropriate queries file:
+Add to the appropriate queries file. Pick the shape based on whether
+the fetch takes an argument:
+
+**No argument** (`api.getPosts()`):
+
+```dart
+final postsQuery = Query<List<Post>>(
+  key: const ['posts'],
+  fn: () => api.getPosts(),
+  staleTime: const Duration(seconds: 30),
+);
+```
+
+**One argument** (`api.getFoo(id)`):
 
 ```dart
 final fooQuery = QueryFamily<Foo, int>(
@@ -79,6 +95,9 @@ final fooQuery = QueryFamily<Foo, int>(
   staleTime: const Duration(seconds: 30),
 );
 ```
+
+For multi-argument fetches, use `QueryFamily<T, (int, String)>` with
+`argKey` (see `doc/CONVENTIONS.md §7`).
 
 ### 4. Rewrite the widget
 

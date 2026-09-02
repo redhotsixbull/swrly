@@ -108,19 +108,44 @@ class PostsRepository {
 when following clean-architecture patterns): swap happens at the CALL
 SITE (the Bloc), not in the repo. The repo stays untouched.
 
+**Instance-based repo caveat**: if the `Query` fn needs the repo
+instance (as opposed to a static or singleton), a top-level `Query`
+definition can't reference the repo directly. Three options:
+
+1. **Factory function** (simplest, small overhead):
+   ```dart
+   // lib/<feature>/queries/weather.dart
+   QueryFamily<Weather, String> weatherQuery(WeatherRepository repo) =>
+       QueryFamily<Weather, String>(
+         prefix: const ['weather'],
+         fn: (city) => repo.getWeather(city),
+         staleTime: const Duration(minutes: 15),
+       );
+   ```
+   Callers do `weatherQuery(_repo)(city).fetch()`. Cache is per-key
+   so multiple factory invocations still hit the same entry —
+   swrly's last-writer-wins for shared keys applies to the captured
+   `fn`, which is fine as long as all callers use the same repo
+   instance.
+
+2. **Singleton repo**: refactor `WeatherRepository` to expose
+   `WeatherRepository.instance`, then define `weatherQuery` at top
+   level referencing the singleton. Cleaner but a wider refactor.
+
+3. **DI container**: pass the repo via a service locator (get_it,
+   riverpod, provider). Bigger commitment.
+
+Recommend (1) unless the project already has DI infrastructure.
+
 Before (inside a Cubit):
 ```dart
 final data = await _repository.getWeather(city);
 ```
 
-After:
+After (option 1):
 ```dart
-final data = await weatherQuery(city).fetch();  // goes to swrly, which calls repo.getWeather via fn
+final data = await weatherQuery(_repository)(city).fetch();
 ```
-
-Where `weatherQuery` is a `QueryFamily<Weather, String>` defined in
-`lib/<feature>/queries/weather.dart` with its `fn` set to
-`(city) => repo.getWeather(city)`.
 
 Either way, the Bloc's state machine stays. It now gets dedupe,
 `staleTime`, and future features for free.
