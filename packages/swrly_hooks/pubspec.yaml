@@ -2,7 +2,7 @@ name: swrly_hooks
 description: >-
   Flutter Hooks bindings for swrly — `useSwrlyQuery` and `useSwrlyMutation`
   for consuming a swrly cache from HookWidget-based screens.
-version: 0.3.0-dev.1
+version: 0.3.0-dev.2
 homepage: https://github.com/redhotsixbull/swrly
 repository: https://github.com/redhotsixbull/swrly
 issue_tracker: https://github.com/redhotsixbull/swrly/issues
@@ -20,7 +20,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_hooks: ^0.20.5
+  # Widened to accept both 0.20.x and 0.21.x — the APIs we use (useEffect,
+  # useState, useRef, useStream) have been stable across both. Pinning to
+  # ^0.20.5 broke `flutter pub add swrly_hooks` for anyone on the current
+  # flutter_hooks release (0.21).
+  flutter_hooks: '>=0.20.5 <0.22.0'
   swrly: ^0.3.0
 
 dev_dependencies:
