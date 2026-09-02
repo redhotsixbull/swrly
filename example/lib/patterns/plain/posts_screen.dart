@@ -12,7 +12,7 @@ import '../shared/widgets.dart';
 ///   via `setState` in `onChanged`. That's the whole ceremony.
 /// - Server state (posts list, post detail, create): all `swrly` —
 ///   `QueryBuilder.of(postsQuery)` / `QueryBuilder.of(postQuery(id))` /
-///   `MutationBuilder` in `CreatePostFab`.
+///   `MutationBuilder` in `CreatePostRow`.
 ///
 /// The key idea: `setState` is fine for local UI state that this screen owns.
 /// It is not fine for the posts list — that's shared, cached, invalidatable
