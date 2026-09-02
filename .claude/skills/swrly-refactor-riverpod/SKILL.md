@@ -40,8 +40,20 @@ migration would regress functionality. swrly's roadmap covers these in
 v0.4+ but they are not in the current release.
 
 ```
-grep -nE "cancelToken|ref\.onDispose|ref\.keepAlive|ref\.watch\(.*[Pp]rovider" <file>
+grep -nE "cancelToken|ref\.onDispose|ref\.keepAlive" <file>
 ```
+
+Then MANUALLY inspect `ref.watch(...)` — the grep pattern below has
+false positives, so it needs a human/judgement pass:
+
+```
+grep -nE "ref\.watch\(" <file>
+```
+
+**Only count `ref.watch` as a hard-stop when it appears INSIDE another
+provider's function body** (composition). `ref.watch` inside a widget's
+`build(context, ref)` is normal consumption and does NOT block
+migration — that widget just switches to `QueryBuilder.of(query)`.
 
 | Feature in the code | Why swrly can't replace it (yet) |
 |---|---|

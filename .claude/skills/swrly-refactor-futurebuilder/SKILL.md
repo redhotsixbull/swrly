@@ -11,8 +11,11 @@ intentional.
 
 ## Prerequisites
 
-- `swrly` is in the project's `pubspec.yaml` (run `swrly-init` first if not).
-- A `Query`/`QueryFamily` folder exists (`swrly-init` creates `lib/queries/`).
+- `swrly` in `pubspec.yaml`.
+- A `Query`/`QueryFamily` folder exists (`lib/queries/` or
+  `lib/<feature>/queries/`). If it does NOT exist, halt and run
+  `swrly-init` first (which creates it and scaffolds the first
+  Query). Do not create the folder silently as part of this skill.
 
 ## Steps
 
