@@ -32,16 +32,63 @@ that:
 - Hand-roll refetch or invalidation logic.
 - Do optimistic writes via `state = AsyncData(...)` on top of a fetched list.
 
+## Hard-stop check — features swrly cannot yet replace
+
+BEFORE proposing any conversion, grep the target provider file for these
+Riverpod features. If ANY are present, HALT and tell the user the
+migration would regress functionality. swrly's roadmap covers these in
+v0.4+ but they are not in the current release.
+
+```
+grep -nE "cancelToken|ref\.onDispose|ref\.keepAlive|ref\.watch\(.*[Pp]rovider" <file>
+```
+
+| Feature in the code | Why swrly can't replace it (yet) |
+|---|---|
+| `ref.cancelToken()` + dio `CancelToken` | swrly does not cancel in-flight requests on subscriber departure (v0.4 roadmap). Migration would silently keep abandoned requests running. |
+| `ref.onDispose(...)` tied to fetch cleanup | swrly's cache lifecycle (`cacheTime` GC after last subscriber) is different — the user's cleanup contract disappears. |
+| `ref.keepAlive()` / explicit AutoDispose tuning | swrly's GC is opinionated (`cacheTime` after last subscriber) — no explicit "keepAlive" primitive. |
+| Provider composition: `ref.watch(otherProvider)` **inside another provider's body** | swrly Queries do not compose across each other automatically; the graph the user built with `ref.watch` chaining doesn't have a 1:1 swrly equivalent. |
+| Inline debounce (`Future.delayed` + `cancelToken.isCancelled`) | swrly has no debounce primitive. |
+
+If the provider is "clean" — plain `FutureProvider((ref) async => api.getX())`
+with no cancellation, no composition, no debounce — proceed to Step 1.
+
+## Codegen (`@riverpod` annotation)
+
+Modern Riverpod projects use the `@riverpod` code generator instead of
+constructor-style providers. Detection:
+
+```
+grep -rnE "@riverpod|@Riverpod" lib/ --include='*.dart' --exclude='*.g.dart'
+```
+
+The constructor-form grep (`FutureProvider\|AsyncNotifier`) misses these
+— add the annotation grep. When you find annotated providers, apply the
+**same** hard-stop check (cancelToken, composition, etc.) to the
+annotated function body.
+
+Only after both filters pass should you proceed with the conversion.
+
 ## Steps
 
 ### 1. List candidate providers
 
 ```
-grep -rn "FutureProvider\|AsyncNotifier" lib/
+grep -rnE "FutureProvider|AsyncNotifier|@riverpod|@Riverpod" lib/ --include='*.dart' --exclude='*.g.dart'
 ```
 
-For each, check if it fetches from an API and whether it's doing more
-than the trivial "call once, return." Present the list to the user.
+The alternation is intentional: constructor-form + codegen-form both
+count. Excluding `.g.dart` keeps generator output out of the results
+(which is where matches for `$FutureProvider` etc. also live).
+
+For each, apply the "Hard-stop check" above. If it uses cancelToken,
+composition, debounce, or explicit keepAlive — do NOT propose a
+conversion; explain to the user which feature blocks it and stop.
+
+For the survivors: check if it fetches from an API and whether it's
+doing more than the trivial "call once, return." Present the list to
+the user.
 
 ### 2. Extract to a `Query` in `lib/queries/`
 
