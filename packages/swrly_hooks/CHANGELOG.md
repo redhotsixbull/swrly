@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.1.0-dev.1
+## 0.3.0-dev.1
 
-- Initial prerelease.
+Initial prerelease. Versioned lockstep with `swrly` (major.minor kept
+in sync so `swrly X.Y.*` and `swrly_hooks X.Y.*` are always compatible
+— same pattern as `flutter_riverpod` / `hooks_riverpod`).
+
 - `useSwrlyQuery(query)` — subscribes a `HookWidget` to a swrly `Query`
   with correct subscriber lifecycle (invalidation refetches, `cacheTime`
   GC waits) and canonical key hashing.
