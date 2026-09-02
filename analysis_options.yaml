@@ -1,4 +1,12 @@
 include: package:flutter_lints/flutter.yaml
 
+# Sub-packages have their own pubspec + analysis_options and are analyzed
+# independently in CI (see .github/workflows/ci.yml). Excluding them here
+# stops the root `flutter analyze` from choking on their deps (which are
+# not deps of the top-level swrly package).
+analyzer:
+  exclude:
+    - packages/**
+
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

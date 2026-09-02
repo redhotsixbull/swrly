@@ -14,9 +14,26 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - name: Install dependencies
+      - name: Install root dependencies
         run: flutter pub get
-      - name: Analyze
+      - name: Analyze root
         run: flutter analyze
-      - name: Test
+      - name: Test root
+        run: flutter test
+
+  test_swrly_hooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install swrly_hooks dependencies
+        working-directory: packages/swrly_hooks
+        run: flutter pub get
+      - name: Analyze swrly_hooks
+        working-directory: packages/swrly_hooks
+        run: flutter analyze
+      - name: Test swrly_hooks
+        working-directory: packages/swrly_hooks
         run: flutter test
