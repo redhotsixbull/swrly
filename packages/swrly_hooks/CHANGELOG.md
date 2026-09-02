@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0-dev.2
+
+- Widen `flutter_hooks` constraint from `^0.20.5` to
+  `>=0.20.5 <0.22.0`. The narrow pin broke `flutter pub add swrly_hooks`
+  for anyone on the current `flutter_hooks` release (0.21.x) — a
+  regression caught during real-world skill verification against a
+  fresh Flutter project after `0.3.0-dev.1` was published. The 8
+  widget tests all pass on 0.21 (the useEffect / useState / useRef /
+  useStream APIs used here are stable across both).
+
 ## 0.3.0-dev.1
 
 Initial prerelease. Versioned lockstep with `swrly` (major.minor kept
