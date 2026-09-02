@@ -110,10 +110,16 @@ class _HookCreateRow extends HookWidget {
                     final title = controller.text.trim();
                     if (title.isEmpty) return;
                     await mut.mutate(title);
-                    // Invalidate so the list refetches (this hook is the
-                    // fire-and-forget variant; use MutationBuilder for
-                    // optimistic + rollback semantics).
-                    postsQuery.invalidate();
+                    // Force a refetch so the hook consumer sees fresh data.
+                    // Note: `postsQuery.invalidate()` alone would not fire a
+                    // refetch here — `useSwrlyQuery` listens to `query.stream`
+                    // but doesn't register as a swrly subscriber, so
+                    // invalidation has no active listener to kick. `refetch()`
+                    // bypasses staleTime and pushes a new emission onto the
+                    // stream. Use `MutationBuilder` (with `onMutate` +
+                    // `invalidate` in `onSettled`) for full optimistic +
+                    // rollback semantics.
+                    await postsQuery.refetch();
                   },
             child: mut.state.isLoading
                 ? const SizedBox(
