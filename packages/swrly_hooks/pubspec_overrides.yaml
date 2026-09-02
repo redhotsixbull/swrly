@@ -1,0 +1,5 @@
+# Development-time override so `swrly_hooks` resolves against the local
+# swrly source rather than pub.dev. Not shipped to pub.dev.
+dependency_overrides:
+  swrly:
+    path: ../..

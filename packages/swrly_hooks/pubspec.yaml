@@ -1,0 +1,29 @@
+name: swrly_hooks
+description: >-
+  Flutter Hooks bindings for swrly — `useSwrlyQuery` and `useSwrlyMutation`
+  for consuming a swrly cache from HookWidget-based screens.
+version: 0.1.0-dev.1
+homepage: https://github.com/redhotsixbull/swrly
+repository: https://github.com/redhotsixbull/swrly
+issue_tracker: https://github.com/redhotsixbull/swrly/issues
+
+topics:
+  - swrly
+  - flutter-hooks
+  - state-management
+  - cache
+
+environment:
+  sdk: ^3.9.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_hooks: ^0.20.5
+  swrly: ^0.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
