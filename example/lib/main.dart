@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:swrly/swrly.dart';
 
+import 'patterns/patterns_home.dart';
 import 'stress_test_screen.dart';
 
 void main() => runApp(const ExampleApp());
@@ -136,6 +137,13 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('swrly + dio'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.dashboard_outlined),
+            tooltip: 'State-management patterns',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PatternsHome()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.speed_outlined),
             tooltip: 'Stress test',
