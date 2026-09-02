@@ -9,10 +9,19 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:swrly/swrly.dart';
 
 QueryState<T> useSwrlyQuery<T>(Query<T> query) {
+  final client = query.client ?? QueryClient.instance;
   useEffect(() {
-    query.fetch();
-    return null;
-  }, [query.key.toString()]);
+    // Register as a real subscriber so invalidation refetches this key and
+    // cacheTime GC does not dispose the entry while the widget is mounted.
+    client.onSubscribe<T>(query.key);
+    // Kick off the initial fetch; state is emitted regardless, so we can
+    // ignore the returned Future without leaving it unhandled.
+    query.fetch().ignore();
+    return () => client.onUnsubscribe<T>(query.key);
+    // Canonical hash — `List.toString` collides on inputs like ['a, b'] vs
+    // ['a', 'b'], both stringify to `[a, b]`. `QueryKeyHash.of` serializes
+    // with quoting so distinct keys stay distinct in the dep array.
+  }, [QueryKeyHash.of(query.key).value]);
   final snapshot = useStream<QueryState<T>>(
     query.stream,
     initialData: query.state,
