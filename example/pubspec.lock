@@ -278,14 +278,14 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.3.0"
+    version: "0.3.1"
   swrly_hooks:
     dependency: "direct main"
     description:
       path: "../packages/swrly_hooks"
       relative: true
     source: path
-    version: "0.1.0-dev.1"
+    version: "0.3.1-dev.1"
   term_glyph:
     dependency: transitive
     description:

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1-dev.1
+
+Lockstep bump alongside `swrly 0.3.1`. No source changes to the hook
+package itself — this release exists so the compatibility rule (matching
+`major.minor` = compatible) keeps holding after core moves to 0.3.1.
+
 ## 0.3.0-dev.2
 
 - Widen `flutter_hooks` constraint from `^0.20.5` to
