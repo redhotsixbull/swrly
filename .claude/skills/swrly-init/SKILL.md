@@ -39,45 +39,53 @@ Also count files under `lib/` to gauge project size:
 
 ### 2. Install swrly
 
-Add to `pubspec.yaml` under `dependencies`:
+Run:
 
-```yaml
-swrly: ^<latest>
+```
+flutter pub add swrly
 ```
 
-Then run `flutter pub get`.
-
-Do NOT specify a version literal in any docs or comments you write —
-see `doc/CONVENTIONS.md §3`. Only pubspec gets a version.
+This resolves the latest version and runs `pub get` in one step. Do NOT
+hand-edit `pubspec.yaml` with a hardcoded version literal — `flutter pub
+add` picks the current release from pub.dev, which is the only place a
+version literal should live (`doc/CONVENTIONS.md §3`). Do NOT mention any
+specific version number in the docs or comments you write.
 
 ### 3. Scaffold `lib/queries/` with a first Query
 
-Create `lib/queries/` (or the feature-scoped location) with an example
-`Query` that uses the project's existing HTTP client. Use the template
-in `templates/query_definition.dart.tmpl` — substitute the HTTP client
-call the project actually uses.
+Two sub-cases:
 
-Example if the project uses `dio`:
+**a. Project has NO obvious HTTP call sites yet** (greenfield or the HTTP
+layer is elsewhere). Install a placeholder `lib/queries/example_query.dart`
+copied from `templates/query_definition.dart.tmpl` — the `{{FILE_PATH}}`
+and `{{HTTP_PACKAGE}}` placeholders should be substituted before writing:
+`{{FILE_PATH}}` → `lib/queries/example_query.dart`, `{{HTTP_PACKAGE}}` →
+the detected HTTP package name (`dio`, `http`, `chopper`, `graphql`) or
+delete the import line if none.
+
+**b. Project already has HTTP calls** (e.g., an `Api` class, a `Repository`,
+inline `dio.get(...)` in a notifier). Grep for `dio.get\|http.get\|api\.`
+and pick ONE clear call site. Write a **real** Query for that resource
+into `lib/queries/<resource>.dart` (per-resource file, not one blob) —
+pointing the `fn` at the actual call. Then ALSO scaffold the placeholder
+`example_query.dart` so users see the template shape.
+
+Example when the project has an `Api` class with `Api.getPosts()`:
 
 ```dart
-// lib/queries/example_query.dart
+// lib/queries/posts.dart
 import 'package:swrly/swrly.dart';
-// import 'package:dio/dio.dart';   // uncomment when wiring to your dio instance
+import '../api.dart';
 
-/// Example Query — replace with a real one from your app.
-///
-/// See doc/CONVENTIONS.md §5 for the definition placement rules and
-/// §6 for staleTime guidance.
-final exampleQuery = Query<Map<String, dynamic>>(
-  key: const ['example'],
-  fn: () async {
-    // final dio = /* your existing dio instance */;
-    // return (await dio.get<Map<String, dynamic>>('/example')).data!;
-    throw UnimplementedError('replace with a real fetcher');
-  },
+final postsQuery = Query<List<Post>>(
+  key: const ['posts'],
+  fn: () => Api.getPosts(),
   staleTime: const Duration(seconds: 30),
 );
 ```
+
+Every generated Query MUST include `staleTime` — never leave it unset
+(`doc/CONVENTIONS.md §6`).
 
 ### 4. Show one usage snippet in a README fragment
 
@@ -86,8 +94,11 @@ Append a short section to the project's README (or create a
 
 - Where queries live (the folder chosen in step 1)
 - The rule from `doc/CONVENTIONS.md §2` (server state vs client state)
-- One `QueryBuilder.of(exampleQuery, ...)` example
-- Link to the state-management-appropriate pattern in the swrly repo:
+- One `QueryBuilder.of(<query>, ...)` example — use the real Query name
+  from step 3 (`postsQuery` etc.) not `exampleQuery` when a real one exists
+- Link to the state-management-appropriate pattern in the swrly repo,
+  pinned to a specific commit or tag rather than `main` (a `main` link
+  breaks if the repo restructures — use `github.com/redhotsixbull/swrly/tree/<sha-or-tag>/example/lib/patterns/<mgmt>/`):
   - Detected `flutter_bloc` → link `example/lib/patterns/bloc/`
   - Detected `provider` → link `example/lib/patterns/provider/`
   - Detected `flutter_riverpod` → link `example/lib/patterns/riverpod/`

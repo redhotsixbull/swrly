@@ -35,12 +35,19 @@ That's the split candidate.
 
 ### 2. Extract the fetch to a `Query`
 
-Add to `lib/queries/`:
+Create a **per-resource file** — `lib/queries/<resource>.dart`
+(`lib/queries/posts.dart`, `lib/queries/users.dart`). Do NOT dump every
+Query into one file, and do NOT inline the definition inside the notifier
+file (`doc/CONVENTIONS.md §5`):
 
 ```dart
+// lib/queries/posts.dart
+import 'package:swrly/swrly.dart';
+import '../api.dart';
+
 final postsQuery = Query<List<Post>>(
   key: const ['posts'],
-  fn: () => api.getPosts(),
+  fn: () => Api.getPosts(),
   staleTime: const Duration(seconds: 30),
 );
 ```
@@ -57,6 +64,12 @@ Keep any actual client state (filter text, selected id, form state).
 If NOTHING remains after the strip, delete the notifier and remove
 its `ChangeNotifierProvider` — the widgets that consumed it now use
 `QueryBuilder.of(postsQuery)` directly.
+
+**Dep cleanup**: after the strip, grep `package:provider` across `lib/`.
+If there are ZERO hits (this notifier was the only consumer), tell the
+user the `provider` dep is now unused and ask before removing it — they
+may plan to add more Provider-managed client state later, so don't yank
+it silently.
 
 Model after [`example/lib/patterns/provider/`](../../../example/lib/patterns/provider/).
 
