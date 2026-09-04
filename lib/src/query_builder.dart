@@ -181,6 +181,11 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         // enabled flipped false → true: kick off the fetch initState skipped.
         _kickOffFetch();
       }
+    } else if (oldWidget.enabled) {
+      // enabled flipped true → false: the builder stays subscribed (so the
+      // entry survives), but a disabled query must not keep polling. Priming
+      // stays disarmed per SPEC §9; only cancel the interval.
+      _client.cancelInterval(widget.queryKey);
     }
   }
 
@@ -189,14 +194,17 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
     _sub = _client.observe<T>(widget.queryKey).listen((next) {
       if (!mounted) return;
       final notifyOn = widget.notifyOn;
-      // With a filter set, only rebuild when a listed field actually changed.
-      // Still refresh _state / _keptData so a later unfiltered rebuild (or
-      // consecutive state comparisons) see the latest values.
+      // Compare **rendered** states, not raw cache states — with
+      // `placeholderData` / `keepPreviousData` the view overlays flags like
+      // `isPlaceholderData` that the raw cache never sets, so a real-value
+      // arrival could otherwise be filtered out and leave the widget stuck on
+      // the placeholder forever.
       if (notifyOn != null && notifyOn.isNotEmpty) {
-        final changed = next.differsFrom(_state, notifyOn);
+        final prevView = _viewState();
         _state = next;
         _rememberRealData(next);
-        if (changed) setState(() {});
+        final nextView = _viewState();
+        if (nextView.differsFrom(prevView, notifyOn)) setState(() {});
         return;
       }
       setState(() {
@@ -275,7 +283,9 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   }
 
   Future<void> _refetch() async {
-    // Force refetch: temporarily set staleTime to zero.
+    // Force refetch: temporarily set staleTime to zero. Forward the
+    // configured refetchInterval so a pull-to-refresh / retry button doesn't
+    // silently cancel polling for this key.
     try {
       await _client.fetchQuery<T>(
         key: widget.queryKey,
@@ -283,6 +293,7 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         staleTime: Duration.zero,
         retry: widget.retry,
         retryDelay: widget.retryDelay,
+        refetchInterval: widget.refetchInterval,
       );
     } catch (_) {}
   }

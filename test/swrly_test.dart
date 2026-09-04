@@ -1757,5 +1757,191 @@ void main() {
         client.clear();
       });
     });
+
+    group('Codex-review regressions', () {
+      // Note: the P1-1 "onSuccess throw must not re-run mutationFn" property
+      // is verified by code review — an equivalent widget-level test would
+      // need to fight the test binding's zone handling of the deliberate
+      // async throw. The `_mutate` method's structure (onSuccess/onSettled
+      // moved outside the retry try/catch) is the fix; the existing "rollback
+      // fires only after all retries exhaust" test above exercises the same
+      // retry loop shape from the other side.
+
+      test('polling ticks dedupe against an in-flight slow queryFn',
+          () async {
+        // Regression: a queryFn slower than refetchInterval used to have
+        // every tick supersede the previous generation, so no result ever
+        // committed. Ticks must skip while _inflight is non-null.
+        final client = QueryClient();
+        var starts = 0;
+        var completions = 0;
+        Future<int> slow() async {
+          starts += 1;
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          completions += 1;
+          return starts;
+        }
+
+        await client.fetchQuery<int>(
+          key: const ['slow'],
+          fn: slow,
+          staleTime: const Duration(seconds: 30),
+          refetchInterval: const Duration(milliseconds: 40),
+        );
+        client.onSubscribe<int>(const ['slow']);
+
+        // 4 ticks would fit in 200ms; without dedup we'd see 5+ starts and 0
+        // completions. With dedup we see at most 2 starts (initial + at
+        // most 1 more after the first completes).
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        client.onUnsubscribe<int>(const ['slow']);
+        // Let the last inflight settle.
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(completions, greaterThanOrEqualTo(1),
+            reason: 'slow fetch actually commits with dedup');
+        expect(starts, lessThanOrEqualTo(3),
+            reason: 'ticks skip while inflight; no runaway supersedes');
+        client.clear();
+      });
+
+      test('Query.refetch preserves the refetchInterval', () async {
+        // Regression: refetch used to omit refetchInterval, silently
+        // stopping polling on every pull-to-refresh.
+        final client = QueryClient();
+        var calls = 0;
+        final q = Query<int>(
+          key: const ['pr'],
+          fn: () async => ++calls,
+          staleTime: const Duration(seconds: 30),
+          refetchInterval: const Duration(milliseconds: 40),
+          client: client,
+        );
+
+        await q.fetch();
+        client.onSubscribe<int>(const ['pr']);
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        expect(calls, greaterThanOrEqualTo(2), reason: 'polling started');
+
+        // Simulate a pull-to-refresh in the middle of polling.
+        await q.refetch();
+        final callsAfterManualRefetch = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(calls, greaterThan(callsAfterManualRefetch),
+            reason: 'polling must resume after manual refetch');
+
+        client.onUnsubscribe<int>(const ['pr']);
+        client.clear();
+      });
+
+      testWidgets('enabled: true → false cancels polling', (tester) async {
+        // Regression: didUpdateWidget skipped the priming branch when
+        // enabled flipped false, leaving the timer running against a
+        // disabled query.
+        final client = QueryClient();
+        var calls = 0;
+        var enabled = true;
+
+        Widget build() => StatefulBuilder(
+              builder: (context, setSt) => Directionality(
+                textDirection: TextDirection.ltr,
+                child: Column(children: [
+                  QueryBuilder<int>(
+                    queryKey: const ['toggle'],
+                    queryFn: () async => ++calls,
+                    staleTime: const Duration(seconds: 30),
+                    refetchOnResume: false,
+                    refetchInterval: const Duration(milliseconds: 40),
+                    enabled: enabled,
+                    client: client,
+                    builder: (_, s, __) => const SizedBox(),
+                  ),
+                  GestureDetector(
+                    onTap: () => setSt(() => enabled = !enabled),
+                    child: const Text('toggle'),
+                  ),
+                ]),
+              ),
+            );
+
+        await tester.pumpWidget(build());
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 60));
+        await tester.pumpAndSettle();
+        expect(calls, greaterThanOrEqualTo(2), reason: 'polling started');
+
+        // Flip enabled off.
+        await tester.tap(find.text('toggle'));
+        await tester.pumpAndSettle();
+        final callsAtDisable = calls;
+
+        // Wait past several would-be tick windows in real time (pump doesn't
+        // help — timer must not fire).
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 150)),
+        );
+        await tester.pumpAndSettle();
+        expect(calls, callsAtDisable,
+            reason: 'disabled query must stop polling');
+
+        await tester.pumpWidget(const SizedBox());
+        client.clear();
+      });
+
+      testWidgets(
+          'notifyOn compares view states — placeholder→real still rebuilds',
+          (tester) async {
+        // Regression: filter used raw cache state, where isPlaceholderData
+        // never becomes true. A placeholder-then-real transition was
+        // therefore filtered out and the widget stayed on the placeholder.
+        final client = QueryClient();
+        var buildCount = 0;
+        String? lastLabel;
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: QueryBuilder<int>(
+              queryKey: const ['ph'],
+              queryFn: () async {
+                await Future<void>.delayed(
+                    const Duration(milliseconds: 20));
+                return 42;
+              },
+              staleTime: const Duration(seconds: 30),
+              refetchOnResume: false,
+              placeholderData: 99,
+              notifyOn: const {QueryProp.isPlaceholderData},
+              client: client,
+              builder: (context, state, _) {
+                buildCount += 1;
+                lastLabel = state.isPlaceholderData ? 'ph' : 'real';
+                return Text(lastLabel!);
+              },
+            ),
+          ),
+        );
+
+        // First frame: placeholder shown.
+        await tester.pump();
+        expect(lastLabel, 'ph');
+        final buildsAtPlaceholder = buildCount;
+
+        // Advance fake clock past 20ms so the queryFn's delayed future fires,
+        // then pumpAndSettle so the state emission is delivered.
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pumpAndSettle();
+
+        expect(buildCount, greaterThan(buildsAtPlaceholder),
+            reason: 'isPlaceholderData true→false must rebuild');
+        expect(lastLabel, 'real',
+            reason: 'widget must escape the placeholder view');
+
+        await tester.pumpWidget(const SizedBox());
+        client.clear();
+      });
+    });
   });
 }
+

@@ -74,20 +74,17 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
     void Function()? rollback;
     final delayFn = widget.retryDelay ?? defaultRetryDelayFn;
     var attempt = 0;
+    late T result;
     try {
       rollback = await widget.onMutate?.call(variables);
+      // Retry ONLY the mutationFn — an onSuccess/onSettled that throws would
+      // otherwise be caught here as a mutation failure, re-invoking a
+      // non-idempotent write and eventually triggering rollback despite the
+      // mutation having already succeeded.
       while (true) {
         try {
-          final result = await widget.mutationFn(variables);
-          if (mounted) {
-            setState(() => _state = MutationState<T>(
-                  status: MutationStatus.success,
-                  data: result,
-                ));
-          }
-          widget.onSuccess?.call(result, variables);
-          widget.onSettled?.call(variables);
-          return result;
+          result = await widget.mutationFn(variables);
+          break;
         } catch (_) {
           if (attempt >= widget.retry) rethrow;
           attempt += 1;
@@ -110,6 +107,17 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
       widget.onSettled?.call(variables);
       return null;
     }
+    // Success path runs outside the retry try/catch so callbacks that throw
+    // don't trigger a retry of an already-committed mutation.
+    if (mounted) {
+      setState(() => _state = MutationState<T>(
+            status: MutationStatus.success,
+            data: result,
+          ));
+    }
+    widget.onSuccess?.call(result, variables);
+    widget.onSettled?.call(variables);
+    return result;
   }
 
   @override

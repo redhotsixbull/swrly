@@ -285,7 +285,15 @@ class QueryClient {
       // cancels the timer, but a paused-and-resumed timer could fire during
       // that window.
       if (entry.subscribers <= 0) return;
+      // Dedupe against an in-flight fetch: a slow `queryFn` that takes longer
+      // than the poll interval would otherwise supersede its own generation
+      // every tick, so a continuously slow query would never commit a result.
+      if (entry._inflight != null) return;
       entry.refetcher?.call();
+      // Attach a no-op error handler so a rejected polling fetch is not
+      // reported as an unhandled async error — the error already lives in
+      // `state.error` via `_runFetch`'s catch path.
+      entry._inflight?.then<void>((_) {}, onError: (_, __) {});
     });
   }
 
@@ -463,4 +471,13 @@ class QueryClient {
 extension QueryClientInternal on QueryClient {
   void onSubscribe<T>(QueryKey key) => _onSubscribe<T>(key);
   void onUnsubscribe<T>(QueryKey key) => _onUnsubscribe<T>(key);
+
+  /// Pauses a configured polling interval for [key] without dropping the
+  /// entry's other options. Called by `QueryBuilder` when `enabled` flips
+  /// true → false so a disabled query stops polling; a later re-enable
+  /// re-primes via `primeRefetcher`.
+  void cancelInterval(QueryKey key) {
+    final entry = _entries[QueryKeyHash.of(key)];
+    if (entry != null) _syncInterval(entry, null);
+  }
 }

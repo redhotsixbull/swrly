@@ -115,12 +115,16 @@ class Query<T> {
 
   /// Fetches **past** [staleTime] — always runs [fn] (still deduped against an
   /// in-flight request). The pull-to-refresh / retry-button call.
+  ///
+  /// [refetchInterval] is forwarded intentionally — a manual refresh must not
+  /// clear a polling schedule that the definition already configured.
   Future<T> refetch() => _client.fetchQuery<T>(
         key: key,
         fn: fn,
         staleTime: Duration.zero,
         retry: retry,
         retryDelay: retryDelay,
+        refetchInterval: refetchInterval,
       );
 
   /// The cached value, or null if this key holds nothing. Synchronous; never
