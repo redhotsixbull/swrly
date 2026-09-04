@@ -39,6 +39,9 @@ class Query<T> {
     this.staleTime,
     this.retry,
     this.retryDelay,
+    this.initialData,
+    this.initialDataUpdatedAt,
+    this.refetchInterval,
     this.client,
   });
 
@@ -62,6 +65,33 @@ class Query<T> {
   /// when null.
   final RetryDelay? retryDelay;
 
+  /// Seeds the cache with a value at first observation of this key — a real
+  /// success value, not a placeholder. Only invoked when the entry is empty
+  /// (fresh mount or after `cacheTime` GC); a subsequent fetch or another
+  /// subscriber does not re-seed.
+  ///
+  /// Function form (rather than a plain value) avoids the "was `null` an
+  /// omitted default or a legitimate initial value?" ambiguity, and lets the
+  /// caller defer computation until swrly actually needs the value.
+  ///
+  /// Pair with [initialDataUpdatedAt] to teach [staleTime] how old the seed
+  /// really is (e.g. hydrated from server state minutes ago).
+  final T Function()? initialData;
+
+  /// Wall-clock timestamp of when [initialData] was fresh. If `null`, swrly
+  /// treats the seed as "fresh right now" — no refetch fires until [staleTime]
+  /// elapses. Set this to an older `DateTime` when hydrating from a slow
+  /// source so the freshness clock is honest.
+  final DateTime? initialDataUpdatedAt;
+
+  /// Polls this query at the given interval — for dashboards, status widgets,
+  /// near-real-time UIs. `null` (the default) disables polling.
+  ///
+  /// Ticks only while the entry has ≥1 subscriber (nothing polls a dead key)
+  /// and pauses when the last subscriber leaves. Each tick behaves like
+  /// [refetch]: bypasses [staleTime] and dedupes against an in-flight request.
+  final Duration? refetchInterval;
+
   /// The cache this query targets. Defaults to [QueryClient.instance].
   final QueryClient? client;
 
@@ -78,6 +108,9 @@ class Query<T> {
         staleTime: staleTime,
         retry: retry,
         retryDelay: retryDelay,
+        initialData: initialData,
+        initialDataUpdatedAt: initialDataUpdatedAt,
+        refetchInterval: refetchInterval,
       );
 
   /// Fetches **past** [staleTime] — always runs [fn] (still deduped against an
@@ -130,6 +163,9 @@ class Query<T> {
     Duration? staleTime,
     int? retry,
     RetryDelay? retryDelay,
+    T Function()? initialData,
+    DateTime? initialDataUpdatedAt,
+    Duration? refetchInterval,
     QueryClient? client,
   }) {
     return Query<T>(
@@ -138,6 +174,9 @@ class Query<T> {
       staleTime: staleTime ?? this.staleTime,
       retry: retry ?? this.retry,
       retryDelay: retryDelay ?? this.retryDelay,
+      initialData: initialData ?? this.initialData,
+      initialDataUpdatedAt: initialDataUpdatedAt ?? this.initialDataUpdatedAt,
+      refetchInterval: refetchInterval ?? this.refetchInterval,
       client: client ?? this.client,
     );
   }
@@ -170,6 +209,9 @@ class QueryFamily<T, A> {
     this.staleTime,
     this.retry,
     this.retryDelay,
+    this.initialData,
+    this.initialDataUpdatedAt,
+    this.refetchInterval,
     this.client,
   });
 
@@ -202,6 +244,17 @@ class QueryFamily<T, A> {
   /// Applied to every member. See [Query.retryDelay].
   final RetryDelay? retryDelay;
 
+  /// Applied to every member with its argument. See [Query.initialData]. Given
+  /// the argument so each member can synthesize its own seed (e.g. a stub
+  /// `Post` shaped from a list-view item).
+  final T Function(A arg)? initialData;
+
+  /// Applied to every member. See [Query.initialDataUpdatedAt].
+  final DateTime? initialDataUpdatedAt;
+
+  /// Applied to every member. See [Query.refetchInterval].
+  final Duration? refetchInterval;
+
   /// Applied to every member. See [Query.client].
   final QueryClient? client;
 
@@ -217,6 +270,9 @@ class QueryFamily<T, A> {
         staleTime: staleTime,
         retry: retry,
         retryDelay: retryDelay,
+        initialData: initialData == null ? null : () => initialData!(arg),
+        initialDataUpdatedAt: initialDataUpdatedAt,
+        refetchInterval: refetchInterval,
         client: client,
       );
 

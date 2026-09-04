@@ -27,12 +27,12 @@ QueryClient({
 
 ### Methods
 
-- `Future<T> fetchQuery<T>({key, fn, staleTime, retry, retryDelay})` — imperative fetch. Uses cache if fresh, dedups in-flight requests, emits state updates through the stream. `retry`/`retryDelay` fall back to the client defaults.
+- `Future<T> fetchQuery<T>({key, fn, staleTime, retry, retryDelay, initialData, initialDataUpdatedAt, refetchInterval})` — imperative fetch. Uses cache if fresh, dedups in-flight requests, emits state updates through the stream. `retry`/`retryDelay` fall back to the client defaults. `initialData` / `initialDataUpdatedAt` seed an empty entry (see `Query`). `refetchInterval` arms a periodic force-refetch while the entry has ≥1 subscriber.
 - `Stream<QueryState<T>> observe<T>(key)` — broadcast stream of state changes. Note it does **not** register a subscriber, so unlike a mounted `QueryBuilder` it does not hold the entry against `cacheTime` GC; a long-lived non-widget consumer should keep the entry warm via `fetchQuery`.
 - `QueryState<T> stateOf<T>(key)` — synchronous read of current state.
 - `void invalidateQueries(prefix, {bool refetch = true})` — mark all keys starting with `prefix` stale. With `refetch: true` (default), entries that currently have subscribers are refetched immediately using their last captured `queryFn` (last-writer-wins for a shared key); others refetch on next observe.
 - `void invalidateQueriesWhere(bool Function(QueryKey) test, {bool refetch = true})` — predicate form of `invalidateQueries` for sets a prefix can't express (e.g. every `['post', id]`, or a match on a map field in the key).
-- `void primeRefetcher<T>({key, fn, staleTime})` — re-capture the `queryFn`/`staleTime` used by a future invalidation refetch **without** fetching. `QueryBuilder` calls this on a same-key rebuild; you rarely need it directly.
+- `void primeRefetcher<T>({key, fn, staleTime, retry, retryDelay, refetchInterval})` — re-capture the `queryFn`/`staleTime`/`refetchInterval` used by a future invalidation refetch / polling tick **without** fetching. `QueryBuilder` calls this on a same-key rebuild; you rarely need it directly.
 - `void setQueryData<T>(key, data)` — write a value directly (skips `queryFn`). Useful for optimistic updates.
 - `T? getQueryData<T>(key)` — read the cached value.
 - `void removeQueries(prefix)` — remove entries whose keys start with `prefix`.
@@ -114,6 +114,15 @@ final postsQuery = Query<List<Post>>(
   build).
 - `staleTime` / `retry` / `retryDelay` — per-query options; each falls back to
   the corresponding `QueryClient` default when null.
+- `initialData` — `T Function()?`. Seeds an empty entry with a real success
+  value at first observation (not a placeholder). Function form avoids
+  "was `null` an omitted default or a real initial value?" ambiguity.
+- `initialDataUpdatedAt` — `DateTime?` telling the freshness clock how old
+  `initialData` is (`null` = "fresh right now").
+- `refetchInterval` — `Duration?`. Polls the query at this interval while the
+  entry has ≥1 subscriber. Ticks pause when the last subscriber leaves and
+  resume on re-subscribe. Each tick bypasses `staleTime` and dedupes against
+  an in-flight fetch.
 - `client` — the cache to target. Defaults to `QueryClient.instance`.
 
 ### Members
@@ -131,7 +140,7 @@ final postsQuery = Query<List<Post>>(
   Exact, not prefix: invalidating `['posts']` leaves `['posts', 'page', 2]`
   alone.
 - `void remove()` — drops **this key only** from the cache.
-- `Query<T> copyWith({key, fn, staleTime, retry, retryDelay, client})` — a copy
+- `Query<T> copyWith({key, fn, staleTime, retry, retryDelay, initialData, initialDataUpdatedAt, refetchInterval, client})` — a copy
   with individual options overridden (a one-off `staleTime` at a call site, or
   pointing a shared definition at a test client).
 
@@ -158,7 +167,9 @@ postQuery.invalidateAll();    // every ['post', …]
 - `argKey` — `QueryKey Function(A arg)`, the segments appended after `prefix`.
   Defaults to `[arg]`. Supply it when the argument is a record or custom object
   so the key is built from primitives rather than falling back to `toString()`.
-- `staleTime` / `retry` / `retryDelay` / `client` — applied to every member.
+- `staleTime` / `retry` / `retryDelay` / `refetchInterval` / `initialDataUpdatedAt` / `client` — applied to every member.
+- `initialData` — `T Function(A arg)?`. Given the argument so each member can
+  synthesize its own seed (e.g. a stub `Post` from a list-view item).
 
 ### Members
 
@@ -190,6 +201,10 @@ QueryBuilder<T>({
   RetryDelay? retryDelay,         // falls back to client.defaultRetryDelay
   bool keepPreviousData = false,  // keep previous key's data on key change
   T? placeholderData,             // static stand-in until real data arrives
+  T Function()? initialData,      // seed the empty cache entry once
+  DateTime? initialDataUpdatedAt, // when the seed was fresh
+  Duration? refetchInterval,      // periodic force-refetch while subscribed
+  Set<QueryProp>? notifyOn,       // only rebuild when these fields change
 })
 ```
 
@@ -203,9 +218,29 @@ once retries are exhausted.
 Setting `enabled: false` skips the initial fetch — useful for dependent
 queries: don't run a `posts(userId)` query until you have the `userId`.
 
+`notifyOn: {QueryProp.data, QueryProp.error}` restricts rebuilds to changes in
+the listed fields. Cheap opt-in perf tuning for widgets that don't care about
+`isFetching` flicker or `updatedAt` bumps. Default (`null`) matches previous
+behaviour: rebuild on every state change.
+
 ---
 
-### `QueryBuilder.of(query, {builder, enabled, refetchOnResume, keepPreviousData, placeholderData})`
+## `QueryProp`
+
+```dart
+enum QueryProp {
+  status, data, hasData, error, updatedAt, isFetching, isPlaceholderData,
+}
+```
+
+The set of `QueryState` fields that `QueryBuilder.notifyOn` can filter
+rebuilds by. `data` is compared by identity (a `queryFn` that returns a new
+list every call would break structural-equality comparison); other fields
+compare by `==`.
+
+---
+
+### `QueryBuilder.of(query, {builder, enabled, refetchOnResume, keepPreviousData, placeholderData, notifyOn})`
 
 Builds from a `Query` definition instead of a loose `queryKey`/`queryFn` pair.
 `staleTime`, `retry`, `retryDelay` and `client` come from the definition; the
@@ -229,11 +264,19 @@ MutationBuilder<T, V>({
   void Function(T data, V variables)? onSuccess,
   void Function(Object error, StackTrace stackTrace, V variables)? onError,
   void Function(V variables)? onSettled,
+  int retry = 0,                   // off by default (writes not idempotent)
+  RetryDelay? retryDelay,          // defaults to defaultRetryDelayFn (1s→30s)
 })
 ```
 
 The builder receives a `mutate(variables)` function. It returns `Future<T?>`
 — `null` if the mutation threw (the error is in `state.error`).
+
+`retry` retries a throwing `mutationFn` that many times with a
+`retryDelay(attempt)` backoff. Off by default because writes are not
+idempotent in general. An `onMutate` rollback runs only after **all** retries
+exhaust, not on each attempt, so the optimistic UI survives transient
+failures a retry recovers from.
 
 `onMutate` runs before `mutationFn` (optimistic update). Return a rollback
 closure and swrly runs it automatically if the mutation fails, **before**

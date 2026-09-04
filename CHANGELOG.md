@@ -1,3 +1,35 @@
+## 0.4.0-dev.1
+
+First slice of the v0.4 line — four additive ergonomic knobs, no breaking
+changes:
+
+- **`Query.initialData` / `initialDataUpdatedAt`** — seed a cache entry with a
+  real value at first observation, distinct from `placeholderData` which
+  never persists. Function-form (`T Function()?`) sidesteps the "was `null`
+  omitted or genuinely null?" ambiguity. Pair with `initialDataUpdatedAt`
+  when hydrating from a source that was fresh some time ago, so the
+  freshness clock stays honest. `QueryFamily` variant takes
+  `T Function(A arg)?` so each member can synthesize its own seed.
+  Per [`BACKLOG_TRIAGE.md B1`](doc/BACKLOG_TRIAGE.md).
+- **`Query.refetchInterval`** — per-query polling. Ticks only while the entry
+  has ≥1 subscriber, pauses when the last subscriber leaves and re-arms
+  on re-subscribe. Each tick behaves like `refetch()` — bypasses
+  `staleTime`, dedupes against an in-flight fetch. Per
+  [`BACKLOG_TRIAGE.md A1`](doc/BACKLOG_TRIAGE.md).
+- **`MutationBuilder.retry` / `retryDelay`** — matches the retry knob `Query`
+  already has. Off by default (writes aren't idempotent in general). An
+  `onMutate` rollback runs only after **all** retries exhaust, so the
+  optimistic UI survives transient failures a retry recovers from. Per
+  [`BACKLOG_TRIAGE.md A4`](doc/BACKLOG_TRIAGE.md).
+- **`QueryBuilder.notifyOn` + `QueryProp`** — cheap opt-in rebuild filter. Pass
+  `{QueryProp.data, QueryProp.error}` and the widget stops rebuilding on
+  `isFetching` flicker or `updatedAt` bumps it doesn't render. Default
+  (`null`) matches previous behaviour. Per
+  [`BACKLOG_TRIAGE.md B3`](doc/BACKLOG_TRIAGE.md).
+
+`swrly_hooks` bumps in lockstep to `0.4.0-dev.1` (no source changes required —
+the new options flow through as `Query` fields, which the hooks already read).
+
 ## 0.3.1
 
 Ecosystem release — **no changes to `lib/`**, the public API is byte-identical

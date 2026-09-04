@@ -35,6 +35,16 @@ class QueryEntry<T> {
   /// Cancels the entry after the last subscriber leaves (see cacheTime).
   Timer? _gcTimer;
 
+  /// Fires a periodic refetch while this entry has ≥1 subscriber. Armed when
+  /// [_intervalDuration] is set and the entry has subscribers; cancelled when
+  /// subscribers hit zero or the interval is cleared. See
+  /// [QueryClient.fetchQuery]'s `refetchInterval`.
+  Timer? _intervalTimer;
+
+  /// Current polling interval captured from the last `fetchQuery` /
+  /// `primeRefetcher`. `null` means "not polling"; a change re-arms the timer.
+  Duration? _intervalDuration;
+
   /// Number of live [QueryBuilder]s (or manual subscribers) for this key.
   int subscribers = 0;
 
@@ -72,6 +82,8 @@ class QueryEntry<T> {
   void dispose() {
     _gcTimer?.cancel();
     _gcTimer = null;
+    _intervalTimer?.cancel();
+    _intervalTimer = null;
     _controller.close();
   }
 }
@@ -163,15 +175,43 @@ class QueryClient {
 
   /// Returns cached data if it is still fresh (within `staleTime`), otherwise
   /// fires [fn]. Concurrent calls for the same key share one in-flight request.
+  ///
+  /// [initialData] seeds an empty entry (never overwrites existing data);
+  /// [initialDataUpdatedAt] tells the freshness clock how old the seed is.
+  /// [refetchInterval] arms a periodic force-refetch while the entry has ≥1
+  /// subscriber (see [_syncInterval]).
   Future<T> fetchQuery<T>({
     required QueryKey key,
     required QueryFn<T> fn,
     Duration? staleTime,
     int? retry,
     RetryDelay? retryDelay,
+    T Function()? initialData,
+    DateTime? initialDataUpdatedAt,
+    Duration? refetchInterval,
   }) {
     final entry = _entryFor<T>(key);
     final effectiveStale = staleTime ?? defaultStaleTime;
+
+    // Seed an empty entry with initialData before the freshness check, so a
+    // seeded-and-fresh entry can short-circuit the fetch. Skipped once the
+    // entry has any data — a mid-life seed would silently clobber real state.
+    if (!entry.state.hasData && initialData != null) {
+      final seed = initialData();
+      final seededAt = initialDataUpdatedAt ?? DateTime.now();
+      // freshAt is monotonic; the seed's age is (wall-clock now − seededAt),
+      // clamped to zero for future timestamps (a user bug, but not our crash).
+      final age = DateTime.now().difference(seededAt);
+      final ageClamped = age.isNegative ? Duration.zero : age;
+      entry.freshAt = _clock.elapsed - ageClamped;
+      entry._emit(QueryState<T>(
+        status: QueryStatus.success,
+        data: seed,
+        hasData: true,
+        updatedAt: seededAt,
+        isFetching: false,
+      ));
+    }
 
     // Capture the typed fn/entry so invalidateQueries can refetch with the
     // correct type argument later (last-writer-wins, see [QueryEntry.refetcher]).
@@ -179,6 +219,8 @@ class QueryClient {
       entry._inflight =
           _runFetch<T>(entry, fn, retry: retry, retryDelay: retryDelay);
     };
+
+    _syncInterval(entry, refetchInterval);
 
     final fresh = entry.freshAt != null &&
         entry.state.isSuccess &&
@@ -211,13 +253,40 @@ class QueryClient {
     Duration? staleTime,
     int? retry,
     RetryDelay? retryDelay,
+    Duration? refetchInterval,
   }) {
     final entry = _entryFor<T>(key);
     entry.refetcher = () {
       entry._inflight =
           _runFetch<T>(entry, fn, retry: retry, retryDelay: retryDelay);
     };
+    _syncInterval(entry, refetchInterval);
     _armGcIfIdle(entry);
+  }
+
+  /// Reconciles [entry]'s polling timer with the newly-requested [interval]:
+  /// arms a fresh timer when it changes and the entry has subscribers, cancels
+  /// when [interval] is `null`, no-ops when the interval is unchanged. Called
+  /// from every write-side path that captures options (`fetchQuery` /
+  /// `primeRefetcher`), plus from `_onSubscribe` to arm on first subscriber.
+  void _syncInterval(QueryEntry<Object?> entry, Duration? interval) {
+    if (entry._intervalDuration == interval && entry._intervalTimer != null) {
+      return;
+    }
+    entry._intervalTimer?.cancel();
+    entry._intervalTimer = null;
+    entry._intervalDuration = interval;
+    if (interval == null || interval <= Duration.zero) return;
+    if (entry.subscribers <= 0) return;
+    entry._intervalTimer = Timer.periodic(interval, (_) {
+      // Bail if the entry was disposed between arm and tick.
+      if (entry._controller.isClosed) return;
+      // Skip when no subscribers — belt-and-braces; _onUnsubscribe already
+      // cancels the timer, but a paused-and-resumed timer could fire during
+      // that window.
+      if (entry.subscribers <= 0) return;
+      entry.refetcher?.call();
+    });
   }
 
   Future<T> _runFetch<T>(
@@ -369,6 +438,12 @@ class QueryClient {
     entry.subscribers += 1;
     entry._gcTimer?.cancel();
     entry._gcTimer = null;
+    // First subscriber arriving on an entry with a previously-configured
+    // polling interval must arm the timer (it was cancelled when the last
+    // subscriber left).
+    if (entry.subscribers == 1 && entry._intervalTimer == null) {
+      _syncInterval(entry, entry._intervalDuration);
+    }
   }
 
   void _onUnsubscribe<T>(QueryKey key) {
@@ -376,6 +451,10 @@ class QueryClient {
     if (entry == null) return;
     entry.subscribers = (entry.subscribers - 1).clamp(0, 1 << 31);
     if (entry.subscribers == 0) {
+      // No live subscriber to poll for — pause the timer without clearing
+      // _intervalDuration so a future subscriber can re-arm at the same rate.
+      entry._intervalTimer?.cancel();
+      entry._intervalTimer = null;
       _armGcIfIdle(entry);
     }
   }

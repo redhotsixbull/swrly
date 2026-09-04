@@ -27,6 +27,10 @@ class QueryBuilder<T> extends StatefulWidget {
     this.retryDelay,
     this.keepPreviousData = false,
     this.placeholderData,
+    this.initialData,
+    this.initialDataUpdatedAt,
+    this.refetchInterval,
+    this.notifyOn,
   });
 
   /// Builds from a [Query] definition instead of a loose `queryKey`/`queryFn`
@@ -51,6 +55,7 @@ class QueryBuilder<T> extends StatefulWidget {
     bool refetchOnResume = true,
     bool keepPreviousData = false,
     T? placeholderData,
+    Set<QueryProp>? notifyOn,
   }) {
     return QueryBuilder<T>(
       key: key,
@@ -65,6 +70,10 @@ class QueryBuilder<T> extends StatefulWidget {
       retryDelay: query.retryDelay,
       keepPreviousData: keepPreviousData,
       placeholderData: placeholderData,
+      initialData: query.initialData,
+      initialDataUpdatedAt: query.initialDataUpdatedAt,
+      refetchInterval: query.refetchInterval,
+      notifyOn: notifyOn,
     );
   }
 
@@ -92,6 +101,25 @@ class QueryBuilder<T> extends StatefulWidget {
   /// A static stand-in shown (as `isPlaceholderData`) while the current key has
   /// no real data yet. Not cached; does not affect freshness.
   final T? placeholderData;
+
+  /// Seeds the cache with a real value when this key is first observed.
+  /// See [Query.initialData] — the definition-object form is the usual entry
+  /// point; this widget-level knob exists for `QueryBuilder` used without a
+  /// [Query].
+  final T Function()? initialData;
+
+  /// See [Query.initialDataUpdatedAt].
+  final DateTime? initialDataUpdatedAt;
+
+  /// See [Query.refetchInterval]. `null` (the default) means no polling.
+  final Duration? refetchInterval;
+
+  /// When non-null, `setState` only fires when at least one of these fields
+  /// actually changes between successive state emissions. Cheap opt-in perf
+  /// tuning for widgets that don't care about `isFetching` flicker or
+  /// `updatedAt` bumps. Default (null) matches previous behaviour: rebuild on
+  /// every state change. See [QueryProp].
+  final Set<QueryProp>? notifyOn;
 
   @override
   State<QueryBuilder<T>> createState() => _QueryBuilderState<T>();
@@ -147,6 +175,7 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         staleTime: widget.staleTime,
         retry: widget.retry,
         retryDelay: widget.retryDelay,
+        refetchInterval: widget.refetchInterval,
       );
       if (!oldWidget.enabled) {
         // enabled flipped false → true: kick off the fetch initState skipped.
@@ -159,6 +188,17 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
     _client.onSubscribe<T>(widget.queryKey);
     _sub = _client.observe<T>(widget.queryKey).listen((next) {
       if (!mounted) return;
+      final notifyOn = widget.notifyOn;
+      // With a filter set, only rebuild when a listed field actually changed.
+      // Still refresh _state / _keptData so a later unfiltered rebuild (or
+      // consecutive state comparisons) see the latest values.
+      if (notifyOn != null && notifyOn.isNotEmpty) {
+        final changed = next.differsFrom(_state, notifyOn);
+        _state = next;
+        _rememberRealData(next);
+        if (changed) setState(() {});
+        return;
+      }
       setState(() {
         _state = next;
         _rememberRealData(next);
@@ -225,6 +265,9 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         staleTime: widget.staleTime,
         retry: widget.retry,
         retryDelay: widget.retryDelay,
+        initialData: widget.initialData,
+        initialDataUpdatedAt: widget.initialDataUpdatedAt,
+        refetchInterval: widget.refetchInterval,
       );
     } catch (_) {
       // Error state already emitted via stream.

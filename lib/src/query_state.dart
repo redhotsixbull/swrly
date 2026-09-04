@@ -2,6 +2,20 @@ import 'package:flutter/foundation.dart';
 
 enum QueryStatus { idle, loading, success, error }
 
+/// Fields of [QueryState] that a subscriber can choose to observe. Passed to
+/// `QueryBuilder(notifyOn: {…})` so a rebuild only fires when a listed field
+/// actually changes — a cheap opt-in perf tuning for widgets that don't care
+/// about, say, `isFetching` flicker.
+enum QueryProp {
+  status,
+  data,
+  hasData,
+  error,
+  updatedAt,
+  isFetching,
+  isPlaceholderData,
+}
+
 /// Sentinel distinguishing "argument omitted" from "explicitly passed null" in
 /// [QueryState.copyWith], so a success/loading transition can *clear* a stale
 /// [error]/[stackTrace] instead of silently inheriting it.
@@ -55,6 +69,31 @@ class QueryState<T> {
   bool get isLoading => status == QueryStatus.loading;
   bool get isSuccess => status == QueryStatus.success;
   bool get isError => status == QueryStatus.error;
+
+  /// True if any of [props] differs between [this] and [other]. Compares by
+  /// `==` for scalars and identity for `data` (a `queryFn` that returns a new
+  /// list every call would break structural-equality comparison here).
+  bool differsFrom(QueryState<T> other, Set<QueryProp> props) {
+    for (final p in props) {
+      switch (p) {
+        case QueryProp.status:
+          if (status != other.status) return true;
+        case QueryProp.data:
+          if (!identical(data, other.data)) return true;
+        case QueryProp.hasData:
+          if (hasData != other.hasData) return true;
+        case QueryProp.error:
+          if (error != other.error) return true;
+        case QueryProp.updatedAt:
+          if (updatedAt != other.updatedAt) return true;
+        case QueryProp.isFetching:
+          if (isFetching != other.isFetching) return true;
+        case QueryProp.isPlaceholderData:
+          if (isPlaceholderData != other.isPlaceholderData) return true;
+      }
+    }
+    return false;
+  }
 
   QueryState<T> copyWith({
     QueryStatus? status,
