@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0-dev.1
+
+Lockstep bump alongside `swrly 0.4.0-dev.1`. No hook-side source changes —
+the new `Query` options (`initialData` / `initialDataUpdatedAt` /
+`refetchInterval`) flow through as `Query` fields, and `useSwrlyQuery` /
+`useSwrlyMutation` already consume the definition object. The new
+`MutationBuilder.retry` / `QueryBuilder.notifyOn` knobs are widget-local
+and don't cross into the hooks surface.
+
 ## 0.3.1-dev.1
 
 Lockstep bump alongside `swrly 0.3.1`. No source changes to the hook

@@ -4,6 +4,7 @@ import 'package:swrly/swrly.dart';
 
 import 'patterns/patterns_home.dart';
 import 'stress_test_screen.dart';
+import 'v0_4_demo.dart';
 
 void main() => runApp(const ExampleApp());
 
@@ -149,6 +150,14 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Stress test',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const StressTestScreen()),
+            ),
+          ),
+          IconButton(
+            key: const Key('nav-v04-demo'),
+            icon: const Icon(Icons.new_releases_outlined),
+            tooltip: '0.4.0-dev.1 features',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const V04DemoScreen()),
             ),
           ),
           IconButton(
