@@ -27,6 +27,10 @@ class QueryBuilder<T> extends StatefulWidget {
     this.retryDelay,
     this.keepPreviousData = false,
     this.placeholderData,
+    this.initialData,
+    this.initialDataUpdatedAt,
+    this.refetchInterval,
+    this.notifyOn,
   });
 
   /// Builds from a [Query] definition instead of a loose `queryKey`/`queryFn`
@@ -51,6 +55,7 @@ class QueryBuilder<T> extends StatefulWidget {
     bool refetchOnResume = true,
     bool keepPreviousData = false,
     T? placeholderData,
+    Set<QueryProp>? notifyOn,
   }) {
     return QueryBuilder<T>(
       key: key,
@@ -65,6 +70,10 @@ class QueryBuilder<T> extends StatefulWidget {
       retryDelay: query.retryDelay,
       keepPreviousData: keepPreviousData,
       placeholderData: placeholderData,
+      initialData: query.initialData,
+      initialDataUpdatedAt: query.initialDataUpdatedAt,
+      refetchInterval: query.refetchInterval,
+      notifyOn: notifyOn,
     );
   }
 
@@ -92,6 +101,25 @@ class QueryBuilder<T> extends StatefulWidget {
   /// A static stand-in shown (as `isPlaceholderData`) while the current key has
   /// no real data yet. Not cached; does not affect freshness.
   final T? placeholderData;
+
+  /// Seeds the cache with a real value when this key is first observed.
+  /// See [Query.initialData] — the definition-object form is the usual entry
+  /// point; this widget-level knob exists for `QueryBuilder` used without a
+  /// [Query].
+  final T Function()? initialData;
+
+  /// See [Query.initialDataUpdatedAt].
+  final DateTime? initialDataUpdatedAt;
+
+  /// See [Query.refetchInterval]. `null` (the default) means no polling.
+  final Duration? refetchInterval;
+
+  /// When non-null, `setState` only fires when at least one of these fields
+  /// actually changes between successive state emissions. Cheap opt-in perf
+  /// tuning for widgets that don't care about `isFetching` flicker or
+  /// `updatedAt` bumps. Default (null) matches previous behaviour: rebuild on
+  /// every state change. See [QueryProp].
+  final Set<QueryProp>? notifyOn;
 
   @override
   State<QueryBuilder<T>> createState() => _QueryBuilderState<T>();
@@ -147,11 +175,17 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         staleTime: widget.staleTime,
         retry: widget.retry,
         retryDelay: widget.retryDelay,
+        refetchInterval: widget.refetchInterval,
       );
       if (!oldWidget.enabled) {
         // enabled flipped false → true: kick off the fetch initState skipped.
         _kickOffFetch();
       }
+    } else if (oldWidget.enabled) {
+      // enabled flipped true → false: the builder stays subscribed (so the
+      // entry survives), but a disabled query must not keep polling. Priming
+      // stays disarmed per SPEC §9; only cancel the interval.
+      _client.cancelInterval(widget.queryKey);
     }
   }
 
@@ -159,6 +193,20 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
     _client.onSubscribe<T>(widget.queryKey);
     _sub = _client.observe<T>(widget.queryKey).listen((next) {
       if (!mounted) return;
+      final notifyOn = widget.notifyOn;
+      // Compare **rendered** states, not raw cache states — with
+      // `placeholderData` / `keepPreviousData` the view overlays flags like
+      // `isPlaceholderData` that the raw cache never sets, so a real-value
+      // arrival could otherwise be filtered out and leave the widget stuck on
+      // the placeholder forever.
+      if (notifyOn != null && notifyOn.isNotEmpty) {
+        final prevView = _viewState();
+        _state = next;
+        _rememberRealData(next);
+        final nextView = _viewState();
+        if (nextView.differsFrom(prevView, notifyOn)) setState(() {});
+        return;
+      }
       setState(() {
         _state = next;
         _rememberRealData(next);
@@ -225,6 +273,9 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         staleTime: widget.staleTime,
         retry: widget.retry,
         retryDelay: widget.retryDelay,
+        initialData: widget.initialData,
+        initialDataUpdatedAt: widget.initialDataUpdatedAt,
+        refetchInterval: widget.refetchInterval,
       );
     } catch (_) {
       // Error state already emitted via stream.
@@ -232,7 +283,9 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   }
 
   Future<void> _refetch() async {
-    // Force refetch: temporarily set staleTime to zero.
+    // Force refetch: temporarily set staleTime to zero. Forward the
+    // configured refetchInterval so a pull-to-refresh / retry button doesn't
+    // silently cancel polling for this key.
     try {
       await _client.fetchQuery<T>(
         key: widget.queryKey,
@@ -240,6 +293,7 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         staleTime: Duration.zero,
         retry: widget.retry,
         retryDelay: widget.retryDelay,
+        refetchInterval: widget.refetchInterval,
       );
     } catch (_) {}
   }
