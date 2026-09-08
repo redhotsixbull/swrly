@@ -67,10 +67,20 @@
 - **`QueryObserver` (imperative API)** for non-widget consumers — owns its
   subscription, so `observe` no longer leaves the `cacheTime` GC question to the
   caller
-- **`useQuery` / `useMutation` hooks** for `flutter_hooks` users — nearly free on
-  top of `Query` (`useQuery(postsQuery)`)
+- ✅ **`useSwrlyQuery` / `useSwrlyMutation` hooks** — shipped in the
+  [`swrly_hooks`](https://pub.dev/packages/swrly_hooks) companion package
 - **Structural sharing** — preserve identity of unchanged nested fields on refetch
 - **Better error surface** — typed error variants, network-vs-parse distinction
+- ✅ **`initialData` / `initialDataUpdatedAt`** — shipped in *0.4.0-dev.1*.
+  Seeds an empty cache entry with a real value at first observation; distinct
+  from `placeholderData` which never persists.
+- **`throwOnError`** — opt-in: rethrow errors so `ErrorWidget.builder` or
+  an `ErrorBoundary`-style widget catches them, instead of surfacing via
+  `state.error`. Off by default. See [`BACKLOG_TRIAGE.md B2`](BACKLOG_TRIAGE.md).
+- ✅ **`notifyOnChangeProps`** — shipped in *0.4.0-dev.1* as
+  `QueryBuilder.notifyOn: Set<QueryProp>`.
+- **Dependent queries — first-class `dependsOn`** — replaces the fragile
+  `enabled: otherQuery.hasData` pattern. See [`BACKLOG_TRIAGE.md B4`](BACKLOG_TRIAGE.md).
 
 ## v0.4 — Robustness
 
@@ -78,6 +88,16 @@
 - **Query cancellation** — abort in-flight requests when subscribers all leave
 - **Focus / online listeners** — configurable refetch triggers beyond app resume
 - **Persistence adapter interface** — plug in shared_preferences / hive / drift
+- ✅ **`refetchInterval`** — shipped in *0.4.0-dev.1*. Per-query polling that
+  ticks only while the entry has ≥1 subscriber and pauses on last unsubscribe.
+- **`select` transform** — pass a selector; `QueryBuilder` only rebuilds
+  when the selected slice changes. Lands with structural sharing so the
+  identity of unchanged slices stays stable. See [`BACKLOG_TRIAGE.md A2`](BACKLOG_TRIAGE.md).
+- **`IsFetchingBuilder`** — top-of-app pattern for "any query fetching → show
+  global spinner." Reads from `QueryClient` aggregate. See [`BACKLOG_TRIAGE.md A3`](BACKLOG_TRIAGE.md).
+- ✅ **Mutation `retry` / `retryDelay`** — shipped in *0.4.0-dev.1*. Off by
+  default (writes aren't idempotent in general); rollback fires only after all
+  retries exhaust.
 - **Example screen for definitions** — an in-app harness for `Query` /
   `QueryFamily`, matching the 0.2.0-dev.4 verification pattern
 
@@ -100,3 +120,14 @@
 - **A GraphQL client** — swrly is transport-agnostic. Users bring their own fetch layer.
 - **Server-side rendering / hydration** — Flutter doesn't ship SSR in a meaningful way for mobile.
 - **Reactive database sync** — that's what Drift / Isar / Realm are for.
+- **`refetchOnMount: 'always'|'never'|'if-stale'` axis** — redundant with
+  `staleTime` (`Duration.zero` = always, huge duration = never, default =
+  if-stale). Adding a second overlapping axis forces users to reason about
+  which wins. See [`BACKLOG_TRIAGE.md R1`](BACKLOG_TRIAGE.md).
+- **Query `meta` field** — free-form metadata slot with no consumer API.
+  Adds dead weight, erodes the "narrow, opinionated cache" boundary, and
+  pre-empts the typed design that DevTools / observability should get
+  when those land. See [`BACKLOG_TRIAGE.md R2`](BACKLOG_TRIAGE.md).
+- **`useQueries` / dynamic-parallel** — too React-flavored; a type-safe
+  record combinator (`QueryGroup2Builder` etc.) is the preferred path
+  when actual demand appears.

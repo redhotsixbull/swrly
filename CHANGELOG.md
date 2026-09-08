@@ -1,3 +1,70 @@
+## 0.4.0-dev.1
+
+First slice of the v0.4 line — four additive ergonomic knobs, no breaking
+changes:
+
+- **`Query.initialData` / `initialDataUpdatedAt`** — seed a cache entry with a
+  real value at first observation, distinct from `placeholderData` which
+  never persists. Function-form (`T Function()?`) sidesteps the "was `null`
+  omitted or genuinely null?" ambiguity. Pair with `initialDataUpdatedAt`
+  when hydrating from a source that was fresh some time ago, so the
+  freshness clock stays honest. `QueryFamily` variant takes
+  `T Function(A arg)?` so each member can synthesize its own seed.
+  Per [`BACKLOG_TRIAGE.md B1`](doc/BACKLOG_TRIAGE.md).
+- **`Query.refetchInterval`** — per-query polling. Ticks only while the entry
+  has ≥1 subscriber, pauses when the last subscriber leaves and re-arms
+  on re-subscribe. Each tick behaves like `refetch()` — bypasses
+  `staleTime`, dedupes against an in-flight fetch. Per
+  [`BACKLOG_TRIAGE.md A1`](doc/BACKLOG_TRIAGE.md).
+- **`MutationBuilder.retry` / `retryDelay`** — matches the retry knob `Query`
+  already has. Off by default (writes aren't idempotent in general). An
+  `onMutate` rollback runs only after **all** retries exhaust, so the
+  optimistic UI survives transient failures a retry recovers from. Per
+  [`BACKLOG_TRIAGE.md A4`](doc/BACKLOG_TRIAGE.md).
+- **`QueryBuilder.notifyOn` + `QueryProp`** — cheap opt-in rebuild filter. Pass
+  `{QueryProp.data, QueryProp.error}` and the widget stops rebuilding on
+  `isFetching` flicker or `updatedAt` bumps it doesn't render. Default
+  (`null`) matches previous behaviour. Per
+  [`BACKLOG_TRIAGE.md B3`](doc/BACKLOG_TRIAGE.md).
+
+`swrly_hooks` bumps in lockstep to `0.4.0-dev.1` (no source changes required —
+the new options flow through as `Query` fields, which the hooks already read).
+
+## 0.3.1
+
+Ecosystem release — **no changes to `lib/`**, the public API is byte-identical
+with `0.3.0`. This release exists to broadcast the surrounding scaffolding
+that landed since:
+
+- **`swrly_hooks` companion package** ([pub.dev](https://pub.dev/packages/swrly_hooks))
+  — `useSwrlyQuery` / `useSwrlyMutation` for `HookWidget`-based screens.
+  Split into its own package so hook non-users don't pay for
+  `flutter_hooks` as a transitive dep; version-locked to swrly's own
+  `major.minor` (matching pattern to `flutter_riverpod` / `hooks_riverpod`).
+- **`example/lib/patterns/`** — 5 runnable side-by-side demos of swrly
+  combined with `setState` / Provider / Riverpod / Bloc / hooks, all
+  driving the same posts screen so the differences are visible at a
+  glance. See the README's "Using with your state management" section.
+- **`.claude/skills/`** — 9 Claude Code skills (`swrly-init`,
+  `swrly-refactor-{futurebuilder,stateful,provider,riverpod,bloc,hooks,spaghetti}`,
+  `swrly-audit`) that scaffold and refactor swrly usage in downstream
+  Flutter projects. Each skill was end-to-end verified against a real
+  Flutter project (fresh scaffold, plus flutter_weather and the
+  rrousselGit/riverpod pub example for the more complex cases).
+- **`AGENTS.md`** at repo root — a living rulebook AI coding assistants
+  (Claude Code, Cursor, Aider, Copilot, Windsurf, ...) can follow when
+  writing any server-state code in a swrly project, not just refactors.
+  Point the assistant at the raw GitHub URL and it defaults to swrly
+  conventions for new features and fetches deeper `.claude/skills/*`
+  procedures on demand.
+- **`doc/CONVENTIONS.md`** — the single-source rulebook every skill
+  cites. Split out of the design plan so both people and AI can consult
+  one file for the "swrly-shaped code" contract.
+
+All existing 70 tests unchanged and passing (widget tests in
+`swrly_hooks` unchanged too). `swrly_hooks` bumps in lockstep to
+`0.3.1-dev.1`.
+
 ## 0.3.0
 
 Stable release of the 0.3.0 line (the `0.3.0-dev.*` notes below are the full
