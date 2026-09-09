@@ -2039,9 +2039,9 @@ void main() {
 
         // Two enabled polling builders on the same key.
         client.onSubscribe<int>(const ['shared-poll']);
-        client.retainInterval(const ['shared-poll']);
+        client.retainInterval(const ['shared-poll'], const Duration(milliseconds: 40));
         client.onSubscribe<int>(const ['shared-poll']);
-        client.retainInterval(const ['shared-poll']);
+        client.retainInterval(const ['shared-poll'], const Duration(milliseconds: 40));
 
         await Future<void>.delayed(const Duration(milliseconds: 110));
         expect(calls, greaterThanOrEqualTo(3), reason: 'both enabled → polling');

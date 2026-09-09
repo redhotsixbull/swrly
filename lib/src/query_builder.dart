@@ -207,7 +207,7 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
     final wants = widget.enabled && widget.refetchInterval != null;
     if (wants == _polling) return;
     if (wants) {
-      _client.retainInterval(widget.queryKey);
+      _client.retainInterval(widget.queryKey, widget.refetchInterval);
     } else {
       _client.releaseInterval(widget.queryKey);
     }

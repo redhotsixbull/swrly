@@ -223,6 +223,12 @@ the test suite (`test/swrly_test.dart`) pins down.
   claim. Anything that arms an interval and stays subscribed MUST claim it —
   arming without claiming lets an unrelated release cancel the timer underneath
   it.
+- Taking a claim MUST also **arm the interval to the claimed rate**, because a
+  claim that only counted would leave polling dead whenever the entry has no
+  live timer: a rate change whose release already cleared it, or an interval
+  going `null` → non-null with nothing else calling `fetchQuery` to arm it.
+  Where claimants disagree on the rate, the last claim wins — the same
+  last-writer-wins rule a shared key's captured `queryFn` follows (§9).
 - **`MutationBuilder.retry` / `retryDelay`** — same knob shape as `Query` (§8.1),
   but **off by default**: writes are not idempotent in general. An `onMutate`
   rollback MUST run only after **all** retries are exhausted, so optimistic UI

@@ -479,12 +479,19 @@ extension QueryClientInternal on QueryClient {
   void onSubscribe<T>(QueryKey key) => _onSubscribe<T>(key);
   void onUnsubscribe<T>(QueryKey key) => _onUnsubscribe<T>(key);
 
-  /// Registers one claim that [key] should keep polling. Called by
-  /// `QueryBuilder` while it is `enabled` with a non-null `refetchInterval`.
-  /// Balanced by [releaseInterval].
-  void retainInterval(QueryKey key) {
+  /// Registers one claim that [key] should keep polling at [interval], and
+  /// arms (or re-arms) the entry's timer to match. Balanced by
+  /// [releaseInterval].
+  ///
+  /// Claiming and arming are one operation on purpose: a claimant that only
+  /// bumped the counter would leave polling dead whenever the entry had no live
+  /// timer — a rate change whose release already cleared it, or an interval
+  /// going null → non-null with nothing else calling `fetchQuery` to arm it.
+  void retainInterval(QueryKey key, Duration? interval) {
     final entry = _entries[QueryKeyHash.of(key)];
-    if (entry != null) entry.pollers += 1;
+    if (entry == null) return;
+    entry.pollers += 1;
+    _syncInterval(entry, interval);
   }
 
   /// Drops one polling claim on [key], pausing the interval only once the

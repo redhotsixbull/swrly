@@ -39,7 +39,9 @@ each pinned by a regression test that fails against the pre-fix code:
   `refetchInterval` key meant flipping *either* to `enabled: false` tore the
   timer down for the whole entry, silently stopping the other's polling until an
   unrelated rebuild re-primed it. `useSwrlyQuery` participates in the same
-  refcount, so a builder letting go can't cancel a mounted hook's polling.
+  refcount, so a builder letting go can't cancel a mounted hook's polling, and
+  taking a claim arms the interval to the claimed rate — a claim that only
+  counted left polling dead when the entry had no live timer.
 - **`onSettled` is honoured when `onSuccess` or `onError` throws.** The
   callbacks ran as bare statements, so a throwing `onSuccess` skipped
   `onSettled` — dropping the cache invalidation apps habitually put there after

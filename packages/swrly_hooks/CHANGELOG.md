@@ -15,7 +15,9 @@ Stable release alongside `swrly 0.4.0`.
   it, so a `QueryBuilder` sharing the key going `enabled: false` cancelled the
   timer out from under the still-mounted hook. Claims are refcounted on the
   cache entry (`swrly` SPEC §11) and the hook now takes one, released on unmount
-  and re-balanced when the interval changes.
+  and re-balanced when the interval changes. Changing `refetchInterval` on a
+  mounted hook — including `null` → non-null — now re-arms the timer at the new
+  rate instead of leaving polling dead.
 
 ## 0.4.0-dev.1
 
