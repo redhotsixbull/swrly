@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+Stable release alongside `swrly 0.4.0`.
+
+- **Fixed: `useSwrlyQuery` re-subscribes when the `QueryClient` changes.** The
+  effect's dependency array held only the key hash, so replacing a `Query` with
+  one on a different client but the same key left the hook subscribed to the old
+  client — the new client never received `fetch()`, and `invalidate()` and the
+  unsubscribe cleanup stayed pointed at the old one. The resolved client is now
+  a dependency alongside the key hash.
+- **Fixed: `useSwrlyQuery` holds a polling claim.** On a `Query` with a
+  `refetchInterval` the hook armed the interval via `fetch()` but never claimed
+  it, so a `QueryBuilder` sharing the key going `enabled: false` cancelled the
+  timer out from under the still-mounted hook. Claims are refcounted on the
+  cache entry (`swrly` SPEC §11) and the hook now takes one, released on unmount
+  and re-balanced when the interval changes.
+
 ## 0.4.0-dev.1
 
 Lockstep bump alongside `swrly 0.4.0-dev.1`. No hook-side source changes —

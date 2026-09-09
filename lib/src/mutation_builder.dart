@@ -103,8 +103,12 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
               stackTrace: st,
             ));
       }
-      widget.onError?.call(e, st, variables);
-      widget.onSettled?.call(variables);
+      // Same unconditional-`onSettled` contract as the success path above.
+      try {
+        widget.onError?.call(e, st, variables);
+      } finally {
+        widget.onSettled?.call(variables);
+      }
       return null;
     }
     // Success path runs outside the retry try/catch so callbacks that throw
@@ -115,8 +119,16 @@ class _MutationBuilderState<T, V> extends State<MutationBuilder<T, V>> {
             data: result,
           ));
     }
-    widget.onSuccess?.call(result, variables);
-    widget.onSettled?.call(variables);
+    // `onSettled` is contractually unconditional (SPEC §9). A throwing
+    // `onSuccess` must not swallow it — the invalidation apps routinely put in
+    // `onSettled` would otherwise be skipped after a write the server already
+    // committed, leaving the cache stale. `finally` (not catch) so the
+    // exception still surfaces to the caller once `onSettled` has run.
+    try {
+      widget.onSuccess?.call(result, variables);
+    } finally {
+      widget.onSettled?.call(variables);
+    }
     return result;
   }
 
