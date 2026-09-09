@@ -35,10 +35,11 @@ each pinned by a regression test that fails against the pre-fix code:
   key — a scoped DI client changing — left the hook subscribed to the old
   client: the new one never got `fetch()`, and invalidation and cleanup stayed
   wired to a client the widget no longer read from.
-- **Polling claims are refcounted per enabled builder.** Two `QueryBuilder`s
-  sharing a `refetchInterval` key meant flipping *either* to `enabled: false`
-  tore the timer down for the whole entry, silently stopping the other's
-  polling until an unrelated rebuild re-primed it.
+- **Polling claims are refcounted per claimant.** Two `QueryBuilder`s sharing a
+  `refetchInterval` key meant flipping *either* to `enabled: false` tore the
+  timer down for the whole entry, silently stopping the other's polling until an
+  unrelated rebuild re-primed it. `useSwrlyQuery` participates in the same
+  refcount, so a builder letting go can't cancel a mounted hook's polling.
 - **`onSettled` is honoured when `onSuccess` or `onError` throws.** The
   callbacks ran as bare statements, so a throwing `onSuccess` skipped
   `onSettled` — dropping the cache invalidation apps habitually put there after

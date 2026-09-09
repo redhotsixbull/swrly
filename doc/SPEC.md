@@ -214,11 +214,15 @@ the test suite (`test/swrly_test.dart`) pins down.
 - Polling is **subscriber-gated**: the timer runs only while the entry has ≥1
   subscriber, pauses when the last one leaves, and re-arms on re-subscribe
   without losing the configured rate (§8).
-- Polling claims are **refcounted per enabled builder**, not per key. Two
-  `QueryBuilder`s may share a polling key; flipping one to `enabled: false`
-  drops only that builder's claim and MUST leave the other's polling running.
-  The interval pauses only when the **last** enabled claimant goes away. A
-  disabled builder stays subscribed (so the entry survives) but holds no claim.
+- Polling claims are **refcounted per claimant**, not per key. A claimant is
+  anything that wants this entry to keep ticking: an `enabled` `QueryBuilder`
+  with a non-null interval, or a mounted `useSwrlyQuery` on a polling `Query`.
+  Two of them may share a key; one letting go MUST leave the others' polling
+  running, and the interval pauses only when the **last** claimant goes away.
+  A disabled builder stays subscribed (so the entry survives) but holds no
+  claim. Anything that arms an interval and stays subscribed MUST claim it —
+  arming without claiming lets an unrelated release cancel the timer underneath
+  it.
 - **`MutationBuilder.retry` / `retryDelay`** — same knob shape as `Query` (§8.1),
   but **off by default**: writes are not idempotent in general. An `onMutate`
   rollback MUST run only after **all** retries are exhausted, so optimistic UI

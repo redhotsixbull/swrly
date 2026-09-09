@@ -201,5 +201,49 @@ void main() {
       clientB.clear();
     });
 
+    testWidgets('holds a polling claim a sibling release cannot cancel',
+        (tester) async {
+      // Regression (Codex review on PR #24): polling claims are refcounted on
+      // the cache entry, but the hook did not participate — it armed the
+      // interval via query.fetch() while only QueryBuilders ever called
+      // retainInterval. A builder sharing the key going disabled/disposed
+      // therefore dropped the count to zero and cancelled the timer out from
+      // under this still-mounted hook. See SPEC §11.
+      final client = _testClient();
+      var calls = 0;
+      final query = Query<int>(
+        key: const ['hook-poll'],
+        fn: () async {
+          calls += 1;
+          return 1;
+        },
+        client: client,
+        refetchInterval: const Duration(milliseconds: 40),
+      );
+
+      final capture = _StateCapture<int>();
+      await tester.pumpWidget(_hookHost(query, capture));
+      await tester.pump();
+      await tester.pump();
+      expect(calls, 1, reason: 'initial fetch');
+
+      // A QueryBuilder on the same key claims polling, then goes away
+      // (enabled:false or disposed).
+      client.retainInterval(const ['hook-poll']);
+      client.releaseInterval(const ['hook-poll']);
+
+      final before = calls;
+      // Advance past two tick windows; each tick's async fn needs a pump to
+      // deliver, so pump in small steps rather than one long jump.
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(calls, greaterThan(before),
+          reason: 'the mounted hook still wants polling');
+
+      await _cleanup(tester);
+      client.clear();
+    });
+
   });
 }
