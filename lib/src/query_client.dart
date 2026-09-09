@@ -48,6 +48,13 @@ class QueryEntry<T> {
   /// Number of live [QueryBuilder]s (or manual subscribers) for this key.
   int subscribers = 0;
 
+  /// Number of subscribers that currently *want* this entry to poll — enabled
+  /// `QueryBuilder`s with a non-null `refetchInterval`. Distinct from
+  /// [subscribers]: a builder can be subscribed but disabled. The interval is
+  /// torn down only when this reaches zero, so flipping one of several builders
+  /// sharing a key to `enabled: false` leaves the others polling.
+  int pollers = 0;
+
   /// Monotonic elapsed time (from the owning client's clock) at which [state]
   /// last became a fresh success. Compared against `staleTime`. `null` means
   /// "no fresh data" — either never fetched or explicitly invalidated.
@@ -472,12 +479,25 @@ extension QueryClientInternal on QueryClient {
   void onSubscribe<T>(QueryKey key) => _onSubscribe<T>(key);
   void onUnsubscribe<T>(QueryKey key) => _onUnsubscribe<T>(key);
 
-  /// Pauses a configured polling interval for [key] without dropping the
-  /// entry's other options. Called by `QueryBuilder` when `enabled` flips
-  /// true → false so a disabled query stops polling; a later re-enable
-  /// re-primes via `primeRefetcher`.
-  void cancelInterval(QueryKey key) {
+  /// Registers one claim that [key] should keep polling. Called by
+  /// `QueryBuilder` while it is `enabled` with a non-null `refetchInterval`.
+  /// Balanced by [releaseInterval].
+  void retainInterval(QueryKey key) {
     final entry = _entries[QueryKeyHash.of(key)];
-    if (entry != null) _syncInterval(entry, null);
+    if (entry != null) entry.pollers += 1;
+  }
+
+  /// Drops one polling claim on [key], pausing the interval only once the
+  /// **last** claimant leaves — the entry's other options are left intact and a
+  /// later re-enable re-primes via `primeRefetcher`.
+  ///
+  /// Refcounted rather than unconditional: two `QueryBuilder`s can share a
+  /// polling key, and flipping one to `enabled: false` must not stop the
+  /// other's polling (SPEC §11).
+  void releaseInterval(QueryKey key) {
+    final entry = _entries[QueryKeyHash.of(key)];
+    if (entry == null) return;
+    entry.pollers = (entry.pollers - 1).clamp(0, 1 << 31);
+    if (entry.pollers == 0) _syncInterval(entry, null);
   }
 }

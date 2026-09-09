@@ -1,7 +1,7 @@
-## 0.4.0-dev.1
+## 0.4.0
 
-First slice of the v0.4 line — four additive ergonomic knobs, no breaking
-changes:
+The v0.4 line, stable. Four additive ergonomic knobs and the fixes from the
+review of the dev prerelease — no breaking changes from `0.3.1`:
 
 - **`Query.initialData` / `initialDataUpdatedAt`** — seed a cache entry with a
   real value at first observation, distinct from `placeholderData` which
@@ -27,8 +27,25 @@ changes:
   (`null`) matches previous behaviour. Per
   [`BACKLOG_TRIAGE.md B3`](doc/BACKLOG_TRIAGE.md).
 
-`swrly_hooks` bumps in lockstep to `0.4.0-dev.1` (no source changes required —
-the new options flow through as `Query` fields, which the hooks already read).
+Fixed since `0.4.0-dev.1`, from an automated review of the release branch —
+each pinned by a regression test that fails against the pre-fix code:
+
+- **`useSwrlyQuery` now re-subscribes when the `QueryClient` changes.** The
+  effect keyed only on the query key, so swapping the client while keeping the
+  key — a scoped DI client changing — left the hook subscribed to the old
+  client: the new one never got `fetch()`, and invalidation and cleanup stayed
+  wired to a client the widget no longer read from.
+- **Polling claims are refcounted per enabled builder.** Two `QueryBuilder`s
+  sharing a `refetchInterval` key meant flipping *either* to `enabled: false`
+  tore the timer down for the whole entry, silently stopping the other's
+  polling until an unrelated rebuild re-primed it.
+- **`onSettled` is honoured when `onSuccess` or `onError` throws.** The
+  callbacks ran as bare statements, so a throwing `onSuccess` skipped
+  `onSettled` — dropping the cache invalidation apps habitually put there after
+  a write the server had already committed. The callback's exception still
+  surfaces to the caller.
+
+`swrly_hooks` bumps in lockstep to `0.4.0` and carries the hook-side fix above.
 
 ## 0.3.1
 

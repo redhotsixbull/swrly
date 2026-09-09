@@ -197,6 +197,42 @@ the test suite (`test/swrly_test.dart`) pins down.
   closure, the closure re-captured by `primeRefetcher` on rebuild (§9) is
   identical across builds.
 
+## 11. Ergonomic knobs (0.4.0)
+
+- **`initialData` / `initialDataUpdatedAt`** — seeds a **real, persisted** cache
+  value the first time a key is observed, unlike `placeholderData` (§9) which is
+  view-only and never enters the cache. The function form (`T Function()?`)
+  keeps "omitted" distinct from "genuinely null". `initialDataUpdatedAt` back-
+  dates the freshness clock (§2), so seeding from a source that was fresh some
+  time ago MUST NOT read as fresh-right-now. The `QueryFamily` form takes
+  `T Function(A arg)?` so each member seeds itself.
+- **`refetchInterval`** — per-query polling. A tick MUST behave like `refetch()`:
+  it bypasses `staleTime` and dedupes against an in-flight fetch (§3), so a
+  `queryFn` slower than the interval can still commit a result rather than
+  superseding its own generation every tick (§4). `Query.refetch()` MUST
+  preserve a configured interval rather than silently cancelling it.
+- Polling is **subscriber-gated**: the timer runs only while the entry has ≥1
+  subscriber, pauses when the last one leaves, and re-arms on re-subscribe
+  without losing the configured rate (§8).
+- Polling claims are **refcounted per enabled builder**, not per key. Two
+  `QueryBuilder`s may share a polling key; flipping one to `enabled: false`
+  drops only that builder's claim and MUST leave the other's polling running.
+  The interval pauses only when the **last** enabled claimant goes away. A
+  disabled builder stays subscribed (so the entry survives) but holds no claim.
+- **`MutationBuilder.retry` / `retryDelay`** — same knob shape as `Query` (§8.1),
+  but **off by default**: writes are not idempotent in general. An `onMutate`
+  rollback MUST run only after **all** retries are exhausted, so optimistic UI
+  survives a transient failure that a retry recovers from.
+- `onSettled` is unconditional (§9). A throwing `onSuccess` or `onError` MUST
+  NOT prevent it from running — an invalidation placed in `onSettled` would
+  otherwise be skipped after a write the server already committed. The callback
+  exception still surfaces to the caller once `onSettled` has run.
+- **`QueryBuilder.notifyOn` + `QueryProp`** — an opt-in rebuild filter. It
+  compares **rendered view states**, not raw cache states: with
+  `placeholderData` / `keepPreviousData` the view overlays flags the cache never
+  sets, so a placeholder→real transition MUST still rebuild. Default (`null`)
+  rebuilds on every state change.
+
 ## Not yet (out of scope)
 Infinite queries, `select`, request cancellation, window-focus refetch,
 persistence, devtools, and a non-widget `QueryObserver` that owns its

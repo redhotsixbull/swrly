@@ -71,13 +71,13 @@
   [`swrly_hooks`](https://pub.dev/packages/swrly_hooks) companion package
 - **Structural sharing** — preserve identity of unchanged nested fields on refetch
 - **Better error surface** — typed error variants, network-vs-parse distinction
-- ✅ **`initialData` / `initialDataUpdatedAt`** — shipped in *0.4.0-dev.1*.
+- ✅ **`initialData` / `initialDataUpdatedAt`** — shipped in *0.4.0*.
   Seeds an empty cache entry with a real value at first observation; distinct
   from `placeholderData` which never persists.
 - **`throwOnError`** — opt-in: rethrow errors so `ErrorWidget.builder` or
   an `ErrorBoundary`-style widget catches them, instead of surfacing via
   `state.error`. Off by default. See [`BACKLOG_TRIAGE.md B2`](BACKLOG_TRIAGE.md).
-- ✅ **`notifyOnChangeProps`** — shipped in *0.4.0-dev.1* as
+- ✅ **`notifyOnChangeProps`** — shipped in *0.4.0* as
   `QueryBuilder.notifyOn: Set<QueryProp>`.
 - **Dependent queries — first-class `dependsOn`** — replaces the fragile
   `enabled: otherQuery.hasData` pattern. See [`BACKLOG_TRIAGE.md B4`](BACKLOG_TRIAGE.md).
@@ -88,14 +88,14 @@
 - **Query cancellation** — abort in-flight requests when subscribers all leave
 - **Focus / online listeners** — configurable refetch triggers beyond app resume
 - **Persistence adapter interface** — plug in shared_preferences / hive / drift
-- ✅ **`refetchInterval`** — shipped in *0.4.0-dev.1*. Per-query polling that
+- ✅ **`refetchInterval`** — shipped in *0.4.0*. Per-query polling that
   ticks only while the entry has ≥1 subscriber and pauses on last unsubscribe.
 - **`select` transform** — pass a selector; `QueryBuilder` only rebuilds
   when the selected slice changes. Lands with structural sharing so the
   identity of unchanged slices stays stable. See [`BACKLOG_TRIAGE.md A2`](BACKLOG_TRIAGE.md).
 - **`IsFetchingBuilder`** — top-of-app pattern for "any query fetching → show
   global spinner." Reads from `QueryClient` aggregate. See [`BACKLOG_TRIAGE.md A3`](BACKLOG_TRIAGE.md).
-- ✅ **Mutation `retry` / `retryDelay`** — shipped in *0.4.0-dev.1*. Off by
+- ✅ **Mutation `retry` / `retryDelay`** — shipped in *0.4.0*. Off by
   default (writes aren't idempotent in general); rollback fires only after all
   retries exhaust.
 - **Example screen for definitions** — an in-app harness for `Query` /

@@ -22,13 +22,19 @@ import 'package:swrly/swrly.dart';
 /// `key.toString()`) so distinct keys with identical stringification —
 /// e.g. `['a, b']` vs `['a', 'b']`, both `[a, b]` under `toString` —
 /// don't collide.
+///
+/// The resolved [QueryClient] is a dependency alongside the key hash. Swapping
+/// the client while keeping the same key — a scoped DI client changing, say —
+/// otherwise leaves the effect subscribed to the *old* client: the new one
+/// never gets `fetch()`, and invalidation and cleanup stay wired to a client
+/// the widget no longer reads from.
 QueryState<T> useSwrlyQuery<T>(Query<T> query) {
   final client = query.client ?? QueryClient.instance;
   useEffect(() {
     client.onSubscribe<T>(query.key);
     query.fetch().ignore();
     return () => client.onUnsubscribe<T>(query.key);
-  }, [QueryKeyHash.of(query.key).value]);
+  }, [QueryKeyHash.of(query.key).value, client]);
   final snapshot = useStream<QueryState<T>>(
     query.stream,
     initialData: query.state,

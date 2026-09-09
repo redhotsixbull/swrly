@@ -147,9 +147,6 @@ for non-hook projects.
 ### 6. Do NOT do these things
 
 - Do not refactor any existing fetch code (that's `swrly-refactor-*`).
-- Do not add `swrly_hooks` as a "separate package" — the library owner
-  explicitly decided against splitting hooks into a companion package
-  (see `doc/CONVENTIONS.md §10`).
 - Do not add persistence, cancellation, infinite queries — swrly does
   not ship those yet. See `doc/CONVENTIONS.md §12`.
 - Do not create multiple `QueryClient` instances — the singleton

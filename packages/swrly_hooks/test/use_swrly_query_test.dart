@@ -150,5 +150,56 @@ void main() {
 
       await _cleanup(tester);
     });
+    testWidgets('re-subscribes when the client changes under the same key',
+        (tester) async {
+      // Regression (2026-09 Codex review on swrly PR #22): the effect's
+      // dependency array held only the key hash, so swapping the QueryClient
+      // while keeping the key — a scoped DI client changing — left the hook
+      // subscribed to the old client. The new client never got fetch(), and
+      // invalidation/cleanup stayed wired to a client the widget no longer
+      // reads from.
+      final clientA = _testClient();
+      final clientB = _testClient();
+      var callsA = 0;
+      var callsB = 0;
+
+      Query<int> queryOn(QueryClient c, void Function() tick) => Query<int>(
+            key: const ['same-key'],
+            fn: () async {
+              tick();
+              return 1;
+            },
+            client: c,
+          );
+
+      final capture = _StateCapture<int>();
+      await tester.pumpWidget(
+        _hookHost(queryOn(clientA, () => callsA += 1), capture),
+      );
+      await tester.pumpAndSettle();
+      expect(callsA, 1, reason: 'initial fetch on client A');
+      expect(callsB, 0);
+
+      // Same key, different client.
+      await tester.pumpWidget(
+        _hookHost(queryOn(clientB, () => callsB += 1), capture),
+      );
+      await tester.pumpAndSettle();
+
+      expect(callsB, 1, reason: 'the new client must receive its own fetch');
+
+      // The old client must have been released — invalidating it should not
+      // drive any further work on behalf of this widget.
+      final callsAAtSwap = callsA;
+      clientA.invalidateQueries(const ['same-key']);
+      await tester.pumpAndSettle();
+      expect(callsA, callsAAtSwap,
+          reason: 'unsubscribed from client A, so its invalidate is inert');
+
+      await _cleanup(tester);
+      clientA.clear();
+      clientB.clear();
+    });
+
   });
 }
