@@ -137,10 +137,13 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   T? _keptData;
   bool _hasKeptData = false;
 
-  /// Whether this builder currently holds a polling claim on `_client` for
-  /// `widget.queryKey`. Claims are refcounted in the client so a disabled
-  /// builder stops only *its own* polling — see [_syncPollingClaim].
-  bool _polling = false;
+  /// The rate this builder currently claims on `_client` for
+  /// `widget.queryKey`, or null when it holds no claim. Claims are refcounted
+  /// per rate in the client, so a disabled builder stops only *its own*
+  /// polling — see [_syncPollingClaim]. Remembered rather than re-read from
+  /// `widget`, because a release has to hand back the rate that was actually
+  /// claimed, which on an update is no longer the current one.
+  Duration? _claimedInterval;
 
   @override
   void initState() {
@@ -202,24 +205,26 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   }
 
   /// Brings this builder's polling claim in line with `enabled` /
-  /// `refetchInterval`. Idempotent — safe to call on every update.
+  /// `refetchInterval`. Idempotent — safe to call on every update, and handles
+  /// a changed rate by releasing the old claim before taking the new one.
   void _syncPollingClaim() {
-    final wants = widget.enabled && widget.refetchInterval != null;
-    if (wants == _polling) return;
-    if (wants) {
-      _client.retainInterval(widget.queryKey, widget.refetchInterval);
-    } else {
-      _client.releaseInterval(widget.queryKey);
+    final wanted = widget.enabled ? widget.refetchInterval : null;
+    if (wanted == _claimedInterval) return;
+    if (_claimedInterval != null) {
+      _client.releaseInterval(widget.queryKey, _claimedInterval);
     }
-    _polling = wants;
+    if (wanted != null) {
+      _client.retainInterval(widget.queryKey, wanted);
+    }
+    _claimedInterval = wanted;
   }
 
   /// Drops a held claim against an explicit client/key pair, used when either
   /// is about to change and on dispose.
   void _releasePollingClaim(QueryClient client, QueryKey key) {
-    if (!_polling) return;
-    client.releaseInterval(key);
-    _polling = false;
+    if (_claimedInterval == null) return;
+    client.releaseInterval(key, _claimedInterval);
+    _claimedInterval = null;
   }
 
   void _subscribe() {

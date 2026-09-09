@@ -41,7 +41,9 @@ each pinned by a regression test that fails against the pre-fix code:
   unrelated rebuild re-primed it. `useSwrlyQuery` participates in the same
   refcount, so a builder letting go can't cancel a mounted hook's polling, and
   taking a claim arms the interval to the claimed rate — a claim that only
-  counted left polling dead when the entry had no live timer.
+  counted left polling dead when the entry had no live timer. Claims track each
+  claimant's rate, so a consumer that briefly slowed a shared key no longer
+  strands the others at that rate once it unmounts.
 - **`onSettled` is honoured when `onSuccess` or `onError` throws.** The
   callbacks ran as bare statements, so a throwing `onSuccess` skipped
   `onSettled` — dropping the cache invalidation apps habitually put there after

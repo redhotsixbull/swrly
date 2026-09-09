@@ -230,7 +230,7 @@ void main() {
       // A QueryBuilder on the same key claims polling, then goes away
       // (enabled:false or disposed).
       client.retainInterval(const ['hook-poll'], const Duration(milliseconds: 40));
-      client.releaseInterval(const ['hook-poll']);
+      client.releaseInterval(const ['hook-poll'], const Duration(milliseconds: 40));
 
       final before = calls;
       // Advance past two tick windows; each tick's async fn needs a pump to

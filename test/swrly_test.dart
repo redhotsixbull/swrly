@@ -2047,14 +2047,14 @@ void main() {
         expect(calls, greaterThanOrEqualTo(3), reason: 'both enabled → polling');
 
         // One flips to enabled:false. It stays subscribed; only its claim goes.
-        client.releaseInterval(const ['shared-poll']);
+        client.releaseInterval(const ['shared-poll'], const Duration(milliseconds: 40));
         final callsAtDisable = calls;
         await Future<void>.delayed(const Duration(milliseconds: 120));
         expect(calls, greaterThan(callsAtDisable),
             reason: 'the still-enabled builder must keep polling');
 
         // The last claimant leaving does pause it.
-        client.releaseInterval(const ['shared-poll']);
+        client.releaseInterval(const ['shared-poll'], const Duration(milliseconds: 40));
         final callsAtLast = calls;
         await Future<void>.delayed(const Duration(milliseconds: 120));
         expect(calls, callsAtLast,
@@ -2062,6 +2062,51 @@ void main() {
 
         client.onUnsubscribe<int>(const ['shared-poll']);
         client.onUnsubscribe<int>(const ['shared-poll']);
+        client.clear();
+      });
+
+      test('releasing the rate-setting claimant restores a survivor rate',
+          () async {
+        // Regression (Codex review on PR #26): claims overwrote the entry-wide
+        // timer without recording who supplied the rate. A claims 40ms, B
+        // slows it to 10s, B leaves — and A was left polling at the departed
+        // claimant's rate forever. Last-writer-wins is defensible among *live*
+        // claimants; a departed one winning is not. See SPEC §11.
+        final client = QueryClient();
+        var calls = 0;
+        Future<int> fn() async => ++calls;
+
+        await client.fetchQuery<int>(
+          key: const ['rates'],
+          fn: fn,
+          staleTime: const Duration(seconds: 30),
+          refetchInterval: const Duration(milliseconds: 40),
+        );
+        client.onSubscribe<int>(const ['rates']);
+        client.onSubscribe<int>(const ['rates']);
+
+        // A wants 40ms; B then slows the shared entry to 10s.
+        client.retainInterval(const ['rates'], const Duration(milliseconds: 40));
+        client.retainInterval(const ['rates'], const Duration(seconds: 10));
+
+        final atSlow = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 130));
+        expect(calls, atSlow, reason: "B's 10s rate is in force while B lives");
+
+        // B unmounts. A still holds its 40ms claim.
+        client.releaseInterval(const ['rates'], const Duration(seconds: 10));
+        final atRestore = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 130));
+        expect(calls, greaterThan(atRestore),
+            reason: "A's 40ms rate must be restored when B departs");
+
+        client.releaseInterval(const ['rates'], const Duration(milliseconds: 40));
+        final atEmpty = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(calls, atEmpty, reason: 'no claimants left → paused');
+
+        client.onUnsubscribe<int>(const ['rates']);
+        client.onUnsubscribe<int>(const ['rates']);
         client.clear();
       });
     });

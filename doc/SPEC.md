@@ -227,8 +227,13 @@ the test suite (`test/swrly_test.dart`) pins down.
   claim that only counted would leave polling dead whenever the entry has no
   live timer: a rate change whose release already cleared it, or an interval
   going `null` → non-null with nothing else calling `fetchQuery` to arm it.
-  Where claimants disagree on the rate, the last claim wins — the same
-  last-writer-wins rule a shared key's captured `queryFn` follows (§9).
+- Claims record **which rate each claimant wants**, not just how many there are.
+  Among live claimants the most recent claim sets the rate. When that claimant
+  departs the timer MUST fall back to a **surviving** claimant's rate — a
+  consumer that briefly slowed a shared key must not strand the others at its
+  rate after unmounting. Last-writer-wins (§9) applies among the living; a
+  departed writer never wins. Releasing therefore hands back the rate that was
+  claimed, so the entry can tell whose claim went away.
 - **`MutationBuilder.retry` / `retryDelay`** — same knob shape as `Query` (§8.1),
   but **off by default**: writes are not idempotent in general. An `onMutate`
   rollback MUST run only after **all** retries are exhausted, so optimistic UI

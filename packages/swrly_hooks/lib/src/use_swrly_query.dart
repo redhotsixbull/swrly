@@ -48,7 +48,7 @@ QueryState<T> useSwrlyQuery<T>(Query<T> query) {
   useEffect(() {
     if (refetchInterval == null) return null;
     client.retainInterval(query.key, refetchInterval);
-    return () => client.releaseInterval(query.key);
+    return () => client.releaseInterval(query.key, refetchInterval);
   }, [QueryKeyHash.of(query.key).value, client, refetchInterval]);
   final snapshot = useStream<QueryState<T>>(
     query.stream,
