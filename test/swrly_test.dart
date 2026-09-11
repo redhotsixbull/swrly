@@ -1941,6 +1941,174 @@ void main() {
         await tester.pumpWidget(const SizedBox());
         client.clear();
       });
+
+      // ── 2026-09 Codex review on PR #22 ──────────────────────────────────
+
+      testWidgets('onSettled still runs when onSuccess throws',
+          (tester) async {
+        // Regression: onSuccess and onSettled were called as two bare
+        // statements, so a throwing onSuccess skipped onSettled entirely —
+        // silently dropping the cache invalidation apps habitually put there
+        // after a write the server had already committed. SPEC §9 makes
+        // onSettled unconditional.
+        var settled = 0;
+        late Future<int?> Function(int) doMutate;
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: MutationBuilder<int, int>(
+              mutationFn: (v) async => v * 2,
+              onSuccess: (_, __) => throw StateError('callback blew up'),
+              onSettled: (_) => settled += 1,
+              builder: (context, mutate, state) {
+                doMutate = mutate;
+                return const SizedBox();
+              },
+            ),
+          ),
+        );
+
+        var threw = false;
+        await tester.runAsync(() async {
+          try {
+            await doMutate(5);
+          } on StateError {
+            threw = true;
+          }
+        });
+        await tester.pumpAndSettle();
+        expect(threw, isTrue,
+            reason: 'the onSuccess failure must still surface to the caller');
+        expect(settled, 1, reason: 'onSettled runs despite onSuccess throwing');
+      });
+
+      testWidgets('onSettled still runs when onError throws', (tester) async {
+        // Same defect, error path — fixed for symmetry with the success path.
+        var settled = 0;
+        late Future<int?> Function(int) doMutate;
+
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: MutationBuilder<int, int>(
+              mutationFn: (v) async => throw StateError('write failed'),
+              onError: (_, __, ___) => throw StateError('handler blew up'),
+              onSettled: (_) => settled += 1,
+              builder: (context, mutate, state) {
+                doMutate = mutate;
+                return const SizedBox();
+              },
+            ),
+          ),
+        );
+
+        var threw = false;
+        await tester.runAsync(() async {
+          try {
+            await doMutate(5);
+          } on StateError {
+            threw = true;
+          }
+        });
+        await tester.pumpAndSettle();
+        expect(threw, isTrue,
+            reason: 'the onError failure must still surface to the caller');
+        expect(settled, 1, reason: 'onSettled runs despite onError throwing');
+      });
+
+      test('disabling one polling builder leaves the other polling', () async {
+        // Regression: cancelInterval tore the timer down for the whole cache
+        // entry, so two QueryBuilders sharing a polling key meant flipping
+        // *either* to enabled:false silently stopped the other's polling.
+        // Claims are refcounted now — see SPEC §11.
+        //
+        // Driven through QueryClient directly, matching the sibling
+        // refetchInterval tests: Timer.periodic does not interleave with the
+        // widget tester's fake clock.
+        final client = QueryClient();
+        var calls = 0;
+        Future<int> fn() async => ++calls;
+
+        await client.fetchQuery<int>(
+          key: const ['shared-poll'],
+          fn: fn,
+          staleTime: const Duration(seconds: 30),
+          refetchInterval: const Duration(milliseconds: 40),
+        );
+
+        // Two enabled polling builders on the same key.
+        client.onSubscribe<int>(const ['shared-poll']);
+        client.retainInterval(const ['shared-poll'], const Duration(milliseconds: 40));
+        client.onSubscribe<int>(const ['shared-poll']);
+        client.retainInterval(const ['shared-poll'], const Duration(milliseconds: 40));
+
+        await Future<void>.delayed(const Duration(milliseconds: 110));
+        expect(calls, greaterThanOrEqualTo(3), reason: 'both enabled → polling');
+
+        // One flips to enabled:false. It stays subscribed; only its claim goes.
+        client.releaseInterval(const ['shared-poll'], const Duration(milliseconds: 40));
+        final callsAtDisable = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(calls, greaterThan(callsAtDisable),
+            reason: 'the still-enabled builder must keep polling');
+
+        // The last claimant leaving does pause it.
+        client.releaseInterval(const ['shared-poll'], const Duration(milliseconds: 40));
+        final callsAtLast = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(calls, callsAtLast,
+            reason: 'no claimants left → interval paused');
+
+        client.onUnsubscribe<int>(const ['shared-poll']);
+        client.onUnsubscribe<int>(const ['shared-poll']);
+        client.clear();
+      });
+
+      test('releasing the rate-setting claimant restores a survivor rate',
+          () async {
+        // Regression (Codex review on PR #26): claims overwrote the entry-wide
+        // timer without recording who supplied the rate. A claims 40ms, B
+        // slows it to 10s, B leaves — and A was left polling at the departed
+        // claimant's rate forever. Last-writer-wins is defensible among *live*
+        // claimants; a departed one winning is not. See SPEC §11.
+        final client = QueryClient();
+        var calls = 0;
+        Future<int> fn() async => ++calls;
+
+        await client.fetchQuery<int>(
+          key: const ['rates'],
+          fn: fn,
+          staleTime: const Duration(seconds: 30),
+          refetchInterval: const Duration(milliseconds: 40),
+        );
+        client.onSubscribe<int>(const ['rates']);
+        client.onSubscribe<int>(const ['rates']);
+
+        // A wants 40ms; B then slows the shared entry to 10s.
+        client.retainInterval(const ['rates'], const Duration(milliseconds: 40));
+        client.retainInterval(const ['rates'], const Duration(seconds: 10));
+
+        final atSlow = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 130));
+        expect(calls, atSlow, reason: "B's 10s rate is in force while B lives");
+
+        // B unmounts. A still holds its 40ms claim.
+        client.releaseInterval(const ['rates'], const Duration(seconds: 10));
+        final atRestore = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 130));
+        expect(calls, greaterThan(atRestore),
+            reason: "A's 40ms rate must be restored when B departs");
+
+        client.releaseInterval(const ['rates'], const Duration(milliseconds: 40));
+        final atEmpty = calls;
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(calls, atEmpty, reason: 'no claimants left → paused');
+
+        client.onUnsubscribe<int>(const ['rates']);
+        client.onUnsubscribe<int>(const ['rates']);
+        client.clear();
+      });
     });
   });
 }

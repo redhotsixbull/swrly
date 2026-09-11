@@ -137,6 +137,14 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
   T? _keptData;
   bool _hasKeptData = false;
 
+  /// The rate this builder currently claims on `_client` for
+  /// `widget.queryKey`, or null when it holds no claim. Claims are refcounted
+  /// per rate in the client, so a disabled builder stops only *its own*
+  /// polling — see [_syncPollingClaim]. Remembered rather than re-read from
+  /// `widget`, because a release has to hand back the rate that was actually
+  /// claimed, which on an update is no longer the current one.
+  Duration? _claimedInterval;
+
   @override
   void initState() {
     super.initState();
@@ -146,6 +154,7 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
       _kickOffFetch();
       _syncStateFromClient();
     }
+    _syncPollingClaim();
     if (widget.refetchOnResume) {
       WidgetsBinding.instance.addObserver(this);
     }
@@ -158,10 +167,14 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         QueryKeyHash.of(oldWidget.queryKey);
     final clientChanged = (widget.client ?? QueryClient.instance) != _client;
     if (keyChanged || clientChanged) {
+      // Release against the *old* client/key before either is swapped —
+      // otherwise the claim leaks onto the entry we're leaving.
+      _releasePollingClaim(_client, oldWidget.queryKey);
       _cleanupSubscription(oldWidget.queryKey);
       _client = widget.client ?? QueryClient.instance;
       _subscribe();
       if (widget.enabled) _kickOffFetch();
+      _syncPollingClaim();
     } else if (widget.enabled) {
       // Same key/client and still enabled: re-capture the current
       // queryFn/staleTime so a later invalidateQueries refetch runs *this*
@@ -181,12 +194,37 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
         // enabled flipped false → true: kick off the fetch initState skipped.
         _kickOffFetch();
       }
+      _syncPollingClaim();
     } else if (oldWidget.enabled) {
       // enabled flipped true → false: the builder stays subscribed (so the
-      // entry survives), but a disabled query must not keep polling. Priming
-      // stays disarmed per SPEC §9; only cancel the interval.
-      _client.cancelInterval(widget.queryKey);
+      // entry survives), but a disabled query must not keep polling *for this
+      // builder*. Priming stays disarmed per SPEC §9; dropping the claim pauses
+      // the interval only if no other enabled builder still wants it.
+      _syncPollingClaim();
     }
+  }
+
+  /// Brings this builder's polling claim in line with `enabled` /
+  /// `refetchInterval`. Idempotent — safe to call on every update, and handles
+  /// a changed rate by releasing the old claim before taking the new one.
+  void _syncPollingClaim() {
+    final wanted = widget.enabled ? widget.refetchInterval : null;
+    if (wanted == _claimedInterval) return;
+    if (_claimedInterval != null) {
+      _client.releaseInterval(widget.queryKey, _claimedInterval);
+    }
+    if (wanted != null) {
+      _client.retainInterval(widget.queryKey, wanted);
+    }
+    _claimedInterval = wanted;
+  }
+
+  /// Drops a held claim against an explicit client/key pair, used when either
+  /// is about to change and on dispose.
+  void _releasePollingClaim(QueryClient client, QueryKey key) {
+    if (_claimedInterval == null) return;
+    client.releaseInterval(key, _claimedInterval);
+    _claimedInterval = null;
   }
 
   void _subscribe() {
@@ -310,6 +348,7 @@ class _QueryBuilderState<T> extends State<QueryBuilder<T>>
     if (widget.refetchOnResume) {
       WidgetsBinding.instance.removeObserver(this);
     }
+    _releasePollingClaim(_client, widget.queryKey);
     _cleanupSubscription(widget.queryKey);
     super.dispose();
   }

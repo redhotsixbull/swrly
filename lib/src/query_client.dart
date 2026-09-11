@@ -48,6 +48,17 @@ class QueryEntry<T> {
   /// Number of live [QueryBuilder]s (or manual subscribers) for this key.
   int subscribers = 0;
 
+  /// The rate each live claimant wants this entry polled at — one entry per
+  /// claim, so duplicates are meaningful. A claimant is anything that wants
+  /// polling to continue: an `enabled` `QueryBuilder` with a non-null
+  /// `refetchInterval`, or a mounted `useSwrlyQuery` on a polling `Query`.
+  /// Distinct from [subscribers]: a builder can be subscribed but disabled.
+  ///
+  /// The rates are tracked, not just counted, so that when the claimant that
+  /// last set the rate departs the timer falls back to a **surviving**
+  /// claimant's rate instead of stranding it at the departed one's.
+  final List<Duration> claimedIntervals = <Duration>[];
+
   /// Monotonic elapsed time (from the owning client's clock) at which [state]
   /// last became a fresh success. Compared against `staleTime`. `null` means
   /// "no fresh data" — either never fetched or explicitly invalidated.
@@ -472,12 +483,40 @@ extension QueryClientInternal on QueryClient {
   void onSubscribe<T>(QueryKey key) => _onSubscribe<T>(key);
   void onUnsubscribe<T>(QueryKey key) => _onUnsubscribe<T>(key);
 
-  /// Pauses a configured polling interval for [key] without dropping the
-  /// entry's other options. Called by `QueryBuilder` when `enabled` flips
-  /// true → false so a disabled query stops polling; a later re-enable
-  /// re-primes via `primeRefetcher`.
-  void cancelInterval(QueryKey key) {
+  /// Registers one claim that [key] should keep polling at [interval], and
+  /// arms (or re-arms) the entry's timer to match. Balanced by
+  /// [releaseInterval], which must be passed the same [interval].
+  ///
+  /// Claiming and arming are one operation on purpose: a claimant that only
+  /// counted would leave polling dead whenever the entry had no live timer — a
+  /// rate change whose release already cleared it, or an interval going null →
+  /// non-null with nothing else calling `fetchQuery` to arm it.
+  void retainInterval(QueryKey key, Duration? interval) {
     final entry = _entries[QueryKeyHash.of(key)];
-    if (entry != null) _syncInterval(entry, null);
+    if (entry == null || interval == null) return;
+    entry.claimedIntervals.add(interval);
+    _syncInterval(entry, interval);
+  }
+
+  /// Drops the claim [interval] on [key], pausing the timer only once the
+  /// **last** claimant leaves — the entry's other options are left intact and a
+  /// later re-enable re-primes via `primeRefetcher`.
+  ///
+  /// Refcounted rather than unconditional: two `QueryBuilder`s can share a
+  /// polling key, and flipping one to `enabled: false` must not stop the
+  /// other's polling (SPEC §11).
+  ///
+  /// When claimants remain, the timer falls back to the most recent surviving
+  /// claim rather than staying at the departing claimant's rate — otherwise a
+  /// consumer that briefly slowed a shared key would strand the others there
+  /// after it unmounted.
+  void releaseInterval(QueryKey key, Duration? interval) {
+    final entry = _entries[QueryKeyHash.of(key)];
+    if (entry == null || interval == null) return;
+    entry.claimedIntervals.remove(interval);
+    _syncInterval(
+      entry,
+      entry.claimedIntervals.isEmpty ? null : entry.claimedIntervals.last,
+    );
   }
 }
