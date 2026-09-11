@@ -229,8 +229,8 @@ void main() {
 
       // A QueryBuilder on the same key claims polling, then goes away
       // (enabled:false or disposed).
-      client.retainInterval(const ['hook-poll']);
-      client.releaseInterval(const ['hook-poll']);
+      client.retainInterval(const ['hook-poll'], const Duration(milliseconds: 40));
+      client.releaseInterval(const ['hook-poll'], const Duration(milliseconds: 40));
 
       final before = calls;
       // Advance past two tick windows; each tick's async fn needs a pump to
@@ -240,6 +240,86 @@ void main() {
       }
       expect(calls, greaterThan(before),
           reason: 'the mounted hook still wants polling');
+
+      await _cleanup(tester);
+      client.clear();
+    });
+
+    testWidgets('re-arms polling when the interval changes', (tester) async {
+      // Regression (Codex review on PR #25): the claim effect's cleanup
+      // released the last claim — clearing the timer *and* the stored interval
+      // — while the re-run only incremented the count. Nothing re-armed, so
+      // changing the rate stopped polling at either rate.
+      final client = _testClient();
+      var calls = 0;
+      Query<int> q(Duration? interval) => Query<int>(
+            key: const ['rate'],
+            fn: () async {
+              calls += 1;
+              return 1;
+            },
+            client: client,
+            refetchInterval: interval,
+          );
+
+      final capture = _StateCapture<int>();
+      await tester.pumpWidget(_hookHost(q(const Duration(milliseconds: 40)), capture));
+      await tester.pump();
+      await tester.pump();
+      expect(calls, 1, reason: 'initial fetch');
+
+      // Same key and client, much slower rate. Asserting the *new* rate took
+      // effect — not merely that something still polls — is what makes this
+      // sensitive: if the old 40ms timer simply kept running, the window below
+      // would see several ticks.
+      await tester.pumpWidget(
+          _hookHost(q(const Duration(seconds: 10)), capture));
+      await tester.pump();
+
+      final before = calls;
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(calls, before,
+          reason: 'the 10s rate must replace the 40ms one, so no tick lands '
+              'in a 320ms window');
+
+      await _cleanup(tester);
+      client.clear();
+    });
+
+    testWidgets('arms polling when the interval goes null → non-null',
+        (tester) async {
+      // Same defect, other direction: the subscription effect does not re-run
+      // on an interval change, so nothing called fetch() to arm the timer and
+      // the new claim only bumped a counter.
+      final client = _testClient();
+      var calls = 0;
+      Query<int> q(Duration? interval) => Query<int>(
+            key: const ['rate2'],
+            fn: () async {
+              calls += 1;
+              return 1;
+            },
+            client: client,
+            refetchInterval: interval,
+          );
+
+      final capture = _StateCapture<int>();
+      await tester.pumpWidget(_hookHost(q(null), capture));
+      await tester.pump();
+      await tester.pump();
+      expect(calls, 1);
+
+      await tester.pumpWidget(_hookHost(q(const Duration(milliseconds: 40)), capture));
+      await tester.pump();
+
+      final before = calls;
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(calls, greaterThan(before),
+          reason: 'turning polling on must arm the timer');
 
       await _cleanup(tester);
       client.clear();
